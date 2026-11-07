@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <rect width="400" height="400" fill="#181818" />
+  <radialGradient id="auraglow" cx="50%" cy="40%" r="50%">
+    <stop offset="0%" stop-color="#ff682c" stop-opacity="0.35"/>
+    <stop offset="70%" stop-color="#202020" stop-opacity="0"/>
+  </radialGradient>
+  <circle cx="200" cy="180" r="160" fill="url(#auraglow)"/>
+  
+  <!-- Sound waves -->
+  <path d="M 60 180 Q 90 140 120 180 T 180 180" stroke="#816729" stroke-width="1.5" fill="none" opacity="0.4"/>
+  <path d="M 220 180 Q 280 220 340 180" stroke="#ff682c" stroke-width="1.5" fill="none" opacity="0.4"/>
+
+  <!-- Headphones Graphic -->
+  <!-- Headband -->
+  <path d="M 120 190 A 85 85 0 0 1 280 190" stroke="#e0e0e0" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M 125 185 A 80 80 0 0 1 275 185" stroke="#252525" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <!-- Headband cushion -->
+  <path d="M 150 125 A 70 70 0 0 1 250 125" stroke="#ff682c" stroke-width="3" fill="none"/>
+  
+  <!-- Left Ear Cup -->
+  <rect x="100" y="170" width="30" height="65" rx="15" fill="#2d2d2d" stroke="#e0e0e0" stroke-width="2"/>
+  <rect x="110" y="180" width="10" height="45" rx="5" fill="#ff682c" opacity="0.8"/>
+  <!-- Right Ear Cup -->
+  <rect x="270" y="170" width="30" height="65" rx="15" fill="#2d2d2d" stroke="#e0e0e0" stroke-width="2"/>
+  <rect x="280" y="180" width="10" height="45" rx="5" fill="#ff682c" opacity="0.8"/>
+  
+  <!-- Ad Copy Elements -->
+  <text x="200" y="280" font-family="'Space Grotesk', sans-serif" font-size="20" fill="#ffffff" text-anchor="middle" letter-spacing="-0.5">AuraWave Pro ANC</text>
+  <text x="200" y="305" font-family="'Inter', sans-serif" font-size="12" fill="#ff682c" text-anchor="middle" letter-spacing="1">99.4% AMBIENT ISOLATION</text>
+  <text x="200" y="328" font-family="'Inter', sans-serif" font-size="13" fill="#a0a0a0" text-anchor="middle">Silence The World. Hear Only What Matters.</text>
+  <rect x="145" y="348" width="110" height="28" fill="#ff682c" rx="0"/>
+  <text x="200" y="367" font-family="'Space Grotesk', sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="600" letter-spacing="0.5">SHOP NOW — $149</text>
+</svg>

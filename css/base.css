@@ -1,0 +1,208 @@
+/* ==========================================================================
+   VENTRILOC BASE STYLES & RESET
+   Whisper-weight editorial typography, paper canvas, precise layout
+   ========================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--surface-canvas);
+  color: var(--color-graphite);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-inter);
+  font-weight: var(--weight-regular);
+  color: var(--color-text-primary);
+  background-color: var(--surface-canvas);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Headings: Exclusively PolySans at weight 400, tight tracking -0.02em */
+h1, h2, h3, h4, h5, h6,
+.font-display,
+.font-heading {
+  font-family: var(--font-polysans);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.02em;
+  color: var(--color-graphite);
+}
+
+h1, .text-display {
+  font-size: clamp(38px, 6vw, var(--text-display));
+  line-height: var(--leading-display);
+  letter-spacing: var(--tracking-display);
+}
+
+h2, .text-heading-lg {
+  font-size: clamp(28px, 4vw, var(--text-heading-lg));
+  line-height: var(--leading-heading-lg);
+  letter-spacing: var(--tracking-heading-lg);
+}
+
+h3, .text-heading {
+  font-size: clamp(22px, 3vw, var(--text-heading));
+  line-height: var(--leading-heading);
+  letter-spacing: var(--tracking-heading);
+}
+
+h4, .text-subheading {
+  font-size: var(--text-subheading);
+  line-height: var(--leading-subheading);
+  letter-spacing: var(--tracking-subheading);
+}
+
+p {
+  color: var(--color-steel);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.text-caption {
+  font-size: var(--text-caption);
+  line-height: var(--leading-caption);
+  color: var(--color-slate);
+}
+
+.text-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a.link-ember {
+  color: var(--color-graphite);
+  text-decoration: underline;
+  text-decoration-color: var(--color-ember-orange);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
+a.link-ember:hover {
+  color: var(--color-ember-orange);
+}
+
+/* Container & Layout */
+.container {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--spacing-24);
+  padding-right: var(--spacing-24);
+}
+
+.section-gap {
+  margin-top: var(--section-gap);
+  margin-bottom: var(--section-gap);
+}
+
+/* Surface Utility Classes */
+.surface-canvas {
+  background-color: var(--surface-canvas);
+}
+
+.surface-ash {
+  background-color: var(--surface-ash);
+}
+
+.surface-fog {
+  background-color: var(--surface-fog);
+}
+
+.surface-ivory {
+  background-color: var(--surface-ivory);
+}
+
+/* App Shell */
+#app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+main.main-content {
+  flex: 1;
+}
+
+/* Toast Notification */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  background-color: var(--color-graphite);
+  color: var(--color-canvas-white);
+  padding: 12px 20px;
+  border-radius: var(--radius-buttons);
+  font-family: var(--font-inter);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideInToast 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.toast-ember-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-ember-orange);
+  flex-shrink: 0;
+}
+
+@keyframes slideInToast {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scrollbar Minimal */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-mist);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-slate);
+}

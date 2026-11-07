@@ -1,0 +1,19 @@
+{
+  "name": "mindmarket",
+  "version": "1.0.0",
+  "description": "MindMarket — Consumer Intelligence & Ad Testing Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "mindmarket",
+    "ad-testing",
+    "consumer-intelligence",
+    "synthetic-focus-group",
+    "adobe-hackathon"
+  ],
+  "author": "Adobe Hackathon 2026 Team",
+  "license": "MIT"
+}
