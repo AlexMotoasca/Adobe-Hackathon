@@ -13,7 +13,7 @@ const fieldInput = ([key,label,max]) => key==='language' ? languageSelect() : '<
 // Signed-in app chrome: wordmark · nav pill · user + sign out.
 const shell = body => {
   const path = globalThis.location?.pathname || '';
-  const nav = [['/dashboard','Reviews'],['/analysis/new','New review'],['/pricing','Plans']].map(([href,label])=>'<a href="'+href+'"'+(path===href||(href==='/dashboard'&&path.startsWith('/analysis/')&&path!=='/analysis/new')?' aria-current="page"':'')+'>'+label+'</a>').join('');
+  const nav = [['/dashboard','Reviews'],['/analysis/new','New review']].map(([href,label])=>'<a href="'+href+'"'+(path===href||(href==='/dashboard'&&path.startsWith('/analysis/')&&path!=='/analysis/new')?' aria-current="page"':'')+'>'+label+'</a>').join('');
   const u = currentUser;
   const who = u ? '<span class="user-chip">'+(u.picture?'<img src="'+e(u.picture)+'" alt="" referrerpolicy="no-referrer">':'<span class="initial">'+e((u.name||u.email||'?')[0].toUpperCase())+'</span>')+'<span>'+e(u.name||u.email)+'</span></span><button type="button" class="btn ghost" id="logout">Sign out</button>' : '';
   return '<header class="site-header"><div class="wrap">'+brand('/dashboard')+'<nav class="nav-pill" aria-label="App">'+nav+'</nav><div class="header-actions">'+who+'</div></div></header><main class="live-main">' + body + '</main>';
