@@ -40,3 +40,26 @@ test('team routes are fixed, missing keys fail, and credentials stay out of seri
     names.forEach((name, i) => { if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i]; });
   }
 });
+
+test('a rate-limited model falls back to the next model on the same key, never another key', async () => {
+  const fetcher = globalThis.fetch;
+  const old = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = 'key-one';
+  const calls: { model: string; auth: string }[] = [];
+  try {
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(init!.body as string);
+      calls.push({ model: body.model, auth: new Headers(init!.headers).get('Authorization')! });
+      if (body.model === 'big') return new Response('{}', { status: 429, headers: { 'retry-after': '1000' } });
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"ok":true}' } }] });
+    };
+    const model = new GroqModel();
+    model.textModel = 'big'; model.fallbackModels = ['small', 'tiny'];
+    assert.deepEqual(await model.generate(z.object({ ok: z.boolean() }), 'Test', {}), { ok: true });
+    assert.deepEqual(calls.map(c => c.model), ['big', 'small']);
+    assert.ok(calls.every(c => c.auth === 'Bearer key-one'));
+  } finally {
+    globalThis.fetch = fetcher;
+    if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old;
+  }
+});

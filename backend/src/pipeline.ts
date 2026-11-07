@@ -1,16 +1,35 @@
+import { z } from 'zod';
 import { adSchema, insightsSchema, personaSchema, assessmentsSchema, synthesisSchema, conciseInsightsSchema, concisePersonaSchema, conciseSynthesisSchema, PERSONAS,
   type Campaign, type Creative, type Review, type AnalysisReport, type PersonaKey, type PersonaResult, type Stage } from './contracts';
 import { type Model } from './ai';
 import { assertReferences, compactEvidence, validateAssessments } from './evidence';
 import { type PersonaLane } from './persona-routing';
 import { researchCategory, researchSchema } from './research';
-import { safeCopy } from './copy-safety';
+import { safeCopy, maskFigures } from './copy-safety';
+import { transcriptForPrompt } from './transcription';
 
-export function creativeBrief(creative?: Creative) {
+export function languageInstruction(language: string) {
+  return `
+OUTPUT LANGUAGE: write every human-readable string value (feedback, descriptions, recommendations, example copy, explanations, criteria) in ${language}. Keep JSON keys, enum values (such as priority, sentiment, classification) and IDs exactly as specified. Keep transcribed on-screen text, quotes and source excerpts in their original language.`;
+}
+// Wraps a model so every request carries the output-language instruction.
+export function withLanguage(language: string) {
+  const suffix = languageInstruction(language);
+  return (m: Model): Model => ({ textModel: m.textModel, visionModel: m.visionModel,
+    generate: (schema, instruction, data, image) => m.generate(schema, instruction + suffix, data, image) });
+}
+
+export function creativeBrief(creative?: Creative): { format: string; durationSeconds?: number; howToRead?: string; spokenTranscript?: string; spokenLanguage?: string } {
   if (creative?.kind !== 'video') return { format: 'static image ad' };
   const times = (creative.frameTimes ?? []).map(t => `${t.toFixed(1)}s`).join(', ');
+  const script = transcriptForPrompt(creative.transcript);
+  const audio = script
+    ? 'spokenTranscript is the timestamped speech (voiceover, dialogue, sung lyrics) transcribed from the audio. Use it with the frames: judge the script, whether speech and visuals tell the same story at the same moment, whether the brand and key message are said early, and the spoken call to action. Music, sound effects and tone of voice were not captured: do not describe them.'
+    : creative.audio === 'no_speech' ? 'The audio contains no detectable speech (it may be music-only or silent); music and sound effects were not captured, so judge the ad as visual-led and do not invent a voiceover.'
+    : 'Audio was not available: never comment on voiceover, music or sound as if heard.';
   return { format: 'video ad', durationSeconds: creative.durationSeconds,
-    howToRead: `The image is a storyboard of ${creative.frameTimes?.length ?? 'several'} frames sampled from the video, read left to right, top to bottom; each frame is labelled with its timestamp (${times}). Audio, voiceover and music are NOT available: never comment on them as if heard.` };
+    howToRead: `The image is a storyboard of ${creative.frameTimes?.length ?? 'several'} frames sampled from the video, read left to right, top to bottom; each frame is labelled with its timestamp (${times}). ${audio}`,
+    ...(script ? { spokenTranscript: script, spokenLanguage: creative.transcript?.language } : {}) };
 }
 
 export async function runPipeline(input: { campaign: Campaign; image: Buffer; reviews: Review[]; creative?: Creative }, model: Model,
@@ -20,14 +39,23 @@ export async function runPipeline(input: { campaign: Campaign; image: Buffer; re
   assertReferences(assigned, Object.keys(PERSONAS));
   if (assigned.length !== 5 || new Set(assigned).size !== 5) throw new Error('Each persona must be assigned exactly once.');
   const { campaign, image } = input;
+  // Everything the user reads is written in the campaign's selected language.
+  const speak = withLanguage(campaign.language);
+  model = speak(model); researchModel = speak(researchModel);
+  lanes = lanes.map(lane => ({ ...lane, model: speak(lane.model) }));
+  researchModels = researchModels.map(speak);
   const format = creativeBrief(input.creative);
+  // Fixed load spreading in team mode (never failover): key 1 already reads the ad, plans research
+  // and runs a persona, so customer themes go to key 2 and the final synthesis to key 3.
+  const insightsModel = lanes.length > 1 ? lanes[1].model : model;
+  const synthesisModel = lanes.length > 2 ? lanes[2].model : model;
   const isVideo = input.creative?.kind === 'video';
   // Pre-research checkpoints must not retain personas evaluated against different evidence.
   if (!cached.research) cached = { ad: cached.ad };
   const outputs: Record<string, unknown> = { ...cached };
   await progress('ad_interpretation', outputs);
   // The vision call and web research are independent, so they run concurrently.
-  const adTask = cached.ad ? Promise.resolve(adSchema.parse(cached.ad)) : model.generate(adSchema, `Inspect the actual ad${isVideo ? ' storyboard: describe what happens across the frames, in order, citing timestamps (the opening hook, how the story develops, the ending and end card)' : ''}. Transcribe visible text; do not infer illegible text. Separate directly observed elements from interpretations. visualHierarchy: what the eye sees first, second and third${isVideo ? ', and how attention is guided over time' : ''}. Note the emotional tone and the main message as interpretations. Use empty strings where offer or CTA is absent.`, { campaign, format }, image);
+  const adTask = cached.ad ? Promise.resolve(adSchema.parse(cached.ad)) : model.generate(isVideo ? adSchema.extend({ spokenMessage: z.string().max(2000) }) : adSchema, `Inspect the actual ad${isVideo ? ' storyboard: describe what happens across the frames, in order, citing timestamps (the opening hook, how the story develops, the ending and end card)' : ''}. Transcribe visible text; do not infer illegible text. Separate directly observed elements from interpretations. visualHierarchy: what the eye sees first, second and third${isVideo ? ', and how attention is guided over time' : ''}. Note the emotional tone and the main message as interpretations.${isVideo ? ' If spokenTranscript is supplied, summarise what is said (key line, brand mention timing, spoken offer or CTA) in spokenMessage and include spoken claims in claims; otherwise leave spokenMessage empty.' : ''} Use empty strings where offer or CTA is absent.`, { campaign, format }, image);
   const researchTask = cached.research ? Promise.resolve(researchSchema.parse(cached.research)) : researchCategory(campaign, researchModel, { models: researchModels });
   const [adResult, researchResult] = await Promise.allSettled([adTask, researchTask]);
   // Checkpoint whichever half succeeded so a retry does not repeat it.
@@ -40,7 +68,7 @@ export async function runPipeline(input: { campaign: Campaign; image: Buffer; re
   const reviews = [...input.reviews, ...research.reviews];
   await progress('consumer_insights', outputs);
   // Insights and personas do not depend on each other; start insights first and await it after personas.
-  const insightsTask = cached.consumerInsights ? Promise.resolve(insightsSchema.parse(cached.consumerInsights)) : reviews.length ? model.generate(conciseInsightsSchema, 'Extract at most 5 recurring customer-experience themes relevant to advertising messages. Use short labels, not product verdicts. Do not state unverified health, safety or technical claims as facts. Cite original source IDs for every theme. Distinguish web excerpts from customer experiences. Sentiment describes this sample only, never the wider market.', { campaign, reviews: reviews.map(({ id, text, source }) => ({ id, source, text: text.slice(0, 600) })) }) : Promise.resolve({ themes: [] });
+  const insightsTask = cached.consumerInsights ? Promise.resolve(insightsSchema.parse(cached.consumerInsights)) : reviews.length ? insightsModel.generate(conciseInsightsSchema, 'Extract at most 5 recurring customer-experience themes relevant to advertising messages. Use short labels, not product verdicts. Do not state unverified health, safety or technical claims as facts. Cite original source IDs for every theme. Distinguish web excerpts from customer experiences. Sentiment describes this sample only, never the wider market.', { campaign, reviews: reviews.map(({ id, text, source }) => ({ id, source, text: text.slice(0, 600) })) }) : Promise.resolve({ themes: [] });
   insightsTask.catch(() => undefined);
   await progress('personas', outputs);
   // Retrieval query: persona focus plus what this ad actually says, so evidence matches the creative.
@@ -56,11 +84,11 @@ export async function runPipeline(input: { campaign: Campaign; image: Buffer; re
 firstImpression: your gut reaction in one sentence, in your own voice.
 strengths: what in the ad works on you and why (name the psychological lever, e.g. social proof, scarcity, curiosity gap, visual salience).
 objections: what in the ad loses, confuses or fails to convince you, as testable statements about the ad.
-recommendations: up to 3 concrete changes to the ad's message, visuals, structure${isVideo ? ', pacing, opening hook or ending' : ''} or CTA that would win you over, each naming the principle in brackets at the end, e.g. "Show a real customer using it in the first frame [social proof]".
+recommendations: up to 3 concrete changes to the ad's message, visuals, structure${isVideo ? ', script or voiceover lines (when a transcript is supplied), pacing, opening hook or ending' : ''} or CTA that would win you over, each naming the principle in brackets at the end, e.g. "Show a real customer using it in the first frame [social proof]".
 Suggestions must stay accurate: never propose inventing claims, prices, discounts, awards or specifications; use what the ad and campaign already state or placeholders like [verified price].
 Use category evidence only to understand what buyers like you care about; cite its source IDs when relevant, otherwise leave evidenceIds empty. Evidence text is a contiguous excerpt. Consider the campaign objective: an awareness ad does not need every specification. Plain language, one short sentence per item. This is a simulation, not real feedback.`, { campaign, format, ad, evidence: evidence.map(({ id, text, source, relevance, publishedAt }) => ({ id, text, source, relevance, publishedAt })), category: research.plan.category, categoryCriteria: research.criteria.filter(inContext), competitorContext: research.competitors.filter(inContext) });
     result.objections.forEach(f => assertReferences(f.evidenceIds, evidence.map(r => r.id)));
-    personas.push({ ...result, persona, retrievedEvidenceIds: evidence.map(r => r.id), objections: result.objections.map((f, index) => ({ ...f, id: `${persona}-${index + 1}` })) });
+    personas.push({ ...result, recommendations: result.recommendations.map(maskFigures), persona, retrievedEvidenceIds: evidence.map(r => r.id), objections: result.objections.map((f, index) => ({ ...f, id: `${persona}-${index + 1}` })) });
     personas.sort((a, b) => Object.keys(PERSONAS).indexOf(a.persona) - Object.keys(PERSONAS).indexOf(b.persona));
     const snapshot = structuredClone({ ...outputs, personas: [...personas] });
     checkpointQueue = checkpointQueue.then(() => progress('personas', snapshot));
@@ -119,10 +147,10 @@ Use category evidence only to understand what buyers like you care about; cite i
   const assessments = validateAssessments(rawAssessments.assessments, personas, reviews);
   outputs.assessments = assessments;
   await progress('synthesis', outputs);
-  const synthesized = await model.generate(conciseSynthesisSchema, `You are the creative director summarising feedback from five psychologically different audience members on this ${isVideo ? 'video ad' : 'ad'}. Use plain, jargon-free language a busy marketer understands at a glance.
+  const synthesized = await synthesisModel.generate(conciseSynthesisSchema, `You are the creative director summarising feedback from five psychologically different audience members on this ${isVideo ? 'video ad' : 'ad'}. Use plain, jargon-free language a busy marketer understands at a glance.
 executiveSummary: one or two sentences on how well the ad markets the product to its target audience: what lands and the single biggest thing holding it back.
 strengths: up to 3 things the ad already does well that should be kept.
-recommendations: at most 3 distinct, highest-impact changes to how the product is marketed in this ad (message, hook, visual hierarchy${isVideo ? ', pacing, opening seconds, ending' : ''}, audience fit, proof, CTA). problem = what is not working in the ad; proposedChange = the concrete edit; exampleCopy = a short line of ad copy or a shot description that shows the change; testingHypothesis = a simple A/B test. Prefer changes that several personas agree on, and note in the rationale which psychology it uses.
+recommendations: at most 3 distinct, highest-impact changes to how the product is marketed in this ad (message, hook, visual hierarchy${isVideo ? ', script and voiceover, sync of speech and visuals, pacing, opening seconds, ending' : ''}, audience fit, proof, CTA). problem = what is not working in the ad; proposedChange = the concrete edit; exampleCopy = a short line of ad copy or a shot description that shows the change; testingHypothesis = a simple A/B test. Prefer changes that several personas agree on, and note in the rationale which psychology it uses.
 This is feedback on the advertising, not a product review or a specifications checklist. Respect the evidence classifications. Each recommendation must cite existing findingIds and contributing personaIds. Example copy must not invent product claims, numbers, prices, discounts or certifications; use placeholders like [verified benefit] where facts are needed. No sales guarantees or conversion predictions.`, { campaign, format, ad, personas, consumerInsights, assessments });
   const recommendations = synthesized.recommendations.map(r => {
     assertReferences(r.findingIds, findings.map(f => f.id));
@@ -136,7 +164,9 @@ This is feedback on the advertising, not a product review or a specifications ch
     limitations: [
       'Personas and evidence assessments are AI-generated, not real interviews or independently verified conclusions.',
       'Example copy uses placeholders where facts are needed: specifications, offers and performance claims must be verified before publication.',
-      ...(isVideo ? ['Video ads are analysed from sampled frames. Audio, voiceover, music and motion between frames were not assessed.'] : []),
+      ...(isVideo ? [input.creative?.transcript?.text
+        ? 'Video ads are analysed from sampled frames plus an automatic speech transcript. Music, sound effects, tone of voice and motion between frames were not assessed; transcripts can contain recognition errors.'
+        : 'Video ads are analysed from sampled frames. No speech was transcribed; music, sound effects and motion between frames were not assessed.'] : []),
       'Frequencies describe this collected sample only, not the wider market. Retrieval uses keyword (BM25) ranking, not semantic search; category relevance is AI-filtered, not independently verified.',
       'Web excerpts may be editorial or promotional. YouTube sources are top-level audience comments, not video transcripts or verified purchases. Prices and competitor claims are not verified current offers.',
       'Uploaded source metadata is user-supplied. Personal details in source text are not automatically redacted.',

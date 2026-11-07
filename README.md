@@ -33,6 +33,19 @@ Reports show an evidence summary at the top (retained sources, sources supplied 
 
 API references: [Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search), [YouTube search](https://developers.google.com/youtube/v3/docs/search/list), [YouTube comments](https://developers.google.com/youtube/v3/docs/commentThreads/list).
 
+## Video playback and transcripts
+
+- For a video, the browser uploads three things:
+  - a 9-frame storyboard, which the vision model reads
+  - the original file, up to 200 MB, for playback in the report
+  - a 16 kHz mono audio track, which Groq Whisper transcribes once at upload time
+- Videos are stored on local disk in `backend/.local/media` (gitignored; set `MEDIA_DIR` to change it). They are served with HTTP range requests, so the player can seek, and are copied when an analysis is rerun.
+- In the report, every timestamp is clickable and jumps the player to that moment. This covers storyboard frames, transcript lines, and times mentioned in recommendations such as "at 1.5 s".
+
+## Rate limits: same-key model fallback
+
+Groq quotas are counted per model. When a text model reaches its limit or asks for a cooldown longer than 20 seconds, the request continues on the next model **on the same key**. The default order is `openai/gpt-oss-20b`, then `qwen/qwen3.8-27b`; override it with `GROQ_FALLBACK_MODELS` (comma-separated). Keys are never switched. If every model on a key is exhausted, the analysis fails with a resumable error, as before.
+
 ## Feedback approach
 
 The analysis gives feedback on the ADVERTISING, not a verdict on the product. Five simulated audience members review each ad, each with a different buying psychology:
@@ -67,7 +80,7 @@ GROQ_TEAM_2_API_KEY=second_team_key
 GROQ_TEAM_3_API_KEY=third_team_key
 ```
 
-Fixed assignments run concurrently: key 1 handles skeptic; key 2 handles impulsive then bargain; key 3 handles quality then rational. At most three persona requests run simultaneously, with one active request per assignment. Research filtering and evidence-validation batches use fixed round-robin assignments across the three keys (batches 1/4/7 on key 1, 2/5 on key 2, 3/6 on key 3). Each key processes its batches in order; different keys run in parallel. Research filtering uses GROQ_RESEARCH_MODEL on each key; validation uses each assigned persona model. Planning, image interpretation, consumer insights and final synthesis remain on the main key. Retrying a saved analysis preserves prior research; use Rerun analysis for fresh collection with the new assignments. Optional `GROQ_TEAM_1_MODEL`, `GROQ_TEAM_2_MODEL`, and `GROQ_TEAM_3_MODEL` override persona models; otherwise all use `GROQ_TEXT_MODEL`. Team routing requires all three keys and rejects duplicate key values. Separate keys do not establish separate organization quotas or authorization to combine quotas.
+Fixed assignments run concurrently: key 1 handles skeptic; key 2 handles impulsive then bargain; key 3 handles quality then rational. At most three persona requests run simultaneously, with one active request per assignment. Research filtering and evidence-validation batches use fixed round-robin assignments across the three keys (batches 1/4/7 on key 1, 2/5 on key 2, 3/6 on key 3). Each key processes its batches in order; different keys run in parallel. Research filtering uses GROQ_RESEARCH_MODEL on each key; validation uses each assigned persona model. Planning and image interpretation stay on the main key; consumer insights run on key 2 and the final synthesis on key 3, which keeps key 1 from running out of quota first. Retrying a saved analysis preserves prior research; use Rerun analysis for fresh collection with the new assignments. Optional `GROQ_TEAM_1_MODEL`, `GROQ_TEAM_2_MODEL`, and `GROQ_TEAM_3_MODEL` override persona models; otherwise all use `GROQ_TEXT_MODEL`. Team routing requires all three keys and rejects duplicate key values. Separate keys do not establish separate organization quotas or authorization to combine quotas.
 
 Requests retry on their assigned key only. They never switch keys after throttling; long provider cooldowns fail with a resumable error. Successful persona checkpoints are saved serially, and failed runs wait for in-flight assignments to settle before reporting failure. Restart the worker after changing configuration; its startup line shows whether team routing is active. Run `npm run check:provider -- --models-only` from backend to confirm all three keys can reach the configured models without spending tokens. No speedup is claimed until measured with the configured accounts.
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { transcriptSchema } from './transcription';
 
 const text = z.string().trim().min(1).max(2000);
 const texts = z.array(text).max(12);
@@ -14,6 +15,11 @@ export const creativeSchema = z.object({
   kind: z.enum(['image', 'video']),
   durationSeconds: z.number().min(0.5).max(600).optional(),
   frameTimes: z.array(z.number().min(0).max(600)).max(12).optional(),
+  // Speech transcribed from the video's audio track (Groq Whisper); absent when there is no speech.
+  audio: z.enum(['transcribed', 'no_speech', 'unavailable']).optional(),
+  transcript: transcriptSchema.optional(),
+  // Original video kept on local disk for playback in the report.
+  video: z.object({ type: z.enum(['video/mp4', 'video/webm', 'video/quicktime']), size: z.number().int().positive() }).optional(),
 });
 export type Creative = z.infer<typeof creativeSchema>;
 export const relevanceSchema = z.enum(['exact_product', 'similar_product', 'category', 'unknown']);
@@ -26,7 +32,7 @@ export const reviewSchema = z.object({
 });
 export const adSchema = z.object({
   visibleText: z.string().max(10000), product: text, offer: z.string().max(2000),
-  cta: z.string().max(2000), observedElements: texts, benefits: texts,
+  cta: z.string().max(2000), spokenMessage: z.string().max(2000).optional(), observedElements: texts, benefits: texts,
   claims: texts, visualHierarchy: text, interpretations: texts, ambiguities: texts,
 });
 export const insightsSchema = z.object({ themes: z.array(z.object({

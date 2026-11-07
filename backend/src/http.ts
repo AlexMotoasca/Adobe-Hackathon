@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { campaignSchema, creativeSchema } from './contracts';
 import { AppError } from './errors';
 import { db } from './db';
-import { createAnalysis, listAnalyses, getAnalysis, summary, saveImage, saveReviews, enqueue, rerunAnalysis } from './repository';
+import { createAnalysis, listAnalyses, getAnalysis, summary, saveImage, saveReviews, saveTranscript, enqueue, rerunAnalysis } from './repository';
+import { assertWav, transcribe, polishTranscript, MAX_AUDIO_BYTES } from './transcription';
+import { GroqModel } from './ai';
+import { translateUi, i18nRequestSchema } from './i18n';
+import { saveVideoStream, videoResponse, VIDEO_TYPES } from './media';
+import { saveVideoMeta } from './repository';
 import { ingestImage, ingestReviews, MAX_IMAGE_BYTES, MAX_REVIEW_BYTES } from './ingestion';
 
 export async function readBounded(request: Request, limit: number): Promise<Buffer> {
@@ -41,6 +46,14 @@ async function dispatch(request: Request, path: string[]) {
     try { await db().query('SELECT id FROM analyses LIMIT 0'); }
     catch { throw new AppError('DATABASE_UNAVAILABLE', 'Database is unavailable or migrations are missing.', 503); }
     return Response.json({ status: 'ok', database: 'connected', providerConfigured: !!process.env.GROQ_API_KEY });
+  }
+  if (path.join('/') === 'i18n' && method === 'POST') {
+    // UI label translations for a report language (cached on disk after the first request).
+    if (!request.headers.get('content-type')?.startsWith('application/json')) throw new AppError('INVALID_REQUEST', 'Use application/json.');
+    let input: unknown;
+    try { input = JSON.parse((await readBounded(request, 64000)).toString('utf8')); }
+    catch (e) { if (e instanceof AppError) throw e; throw new AppError('INVALID_JSON', 'Malformed JSON request.'); }
+    return Response.json(await translateUi(i18nRequestSchema.parse(input), new GroqModel()));
   }
   if (path[0] !== 'analyses') throw new AppError('NOT_FOUND', 'Endpoint not found.', 404);
   if (path.length === 1) {
@@ -82,6 +95,31 @@ async function dispatch(request: Request, path: string[]) {
     await saveImage(id, image.data, image.type, creative);
     return Response.json(summary(await getAnalysis(id)));
   }
+  if (path[2] === 'media' && method === 'POST') {
+    // Raw video body (not multipart) streamed to disk for the report's player.
+    const type = (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!VIDEO_TYPES[type]) throw new AppError('INVALID_UPLOAD', 'Send an MP4, WebM or MOV video with a matching Content-Type.');
+    const row = await getAnalysis(id);
+    if (row.campaign.creative?.kind !== 'video' || !['draft', 'failed'].includes(row.status)) throw new AppError('CONFLICT', 'Upload the video storyboard first; the video file is accepted only for draft or failed video analyses.', 409);
+    const size = await saveVideoStream(id, request.body, Number(request.headers.get('content-length')) || 0);
+    await saveVideoMeta(id, { type, size });
+    return Response.json(summary(await getAnalysis(id)));
+  }
+  if (path[2] === 'audio' && method === 'POST') {
+    // 16 kHz mono WAV extracted in the browser; transcribed once and stored with the creative.
+    const file = await upload(request, MAX_AUDIO_BYTES);
+    assertWav(file.bytes);
+    const row = await getAnalysis(id);
+    if (row.campaign.creative?.kind !== 'video' || !['draft', 'failed'].includes(row.status)) throw new AppError('CONFLICT', 'Upload the video storyboard first; audio is accepted only for draft or failed video analyses.', 409);
+    const raw = await transcribe(file.bytes);
+    // Grammar/spelling pass on the main text model (same-key model fallback applies when its quota runs out);
+    // segments that cannot be verified keep the raw transcript.
+    const proofreader = new GroqModel();
+    proofreader.maxOutputTokens = 3000;
+    const transcript = await polishTranscript(raw, row.campaign, proofreader);
+    if (transcript.text) await saveTranscript(id, 'transcribed', transcript); else await saveTranscript(id, 'no_speech');
+    return Response.json({ ...summary(await getAnalysis(id)), transcript: transcript.text ? transcript : null });
+  }
   if (path[2] === 'reviews' && method === 'POST') {
     const file = await upload(request, MAX_REVIEW_BYTES);
     const { reviews, stats } = ingestReviews(file.bytes, file.name);
@@ -100,6 +138,11 @@ async function dispatch(request: Request, path: string[]) {
       return new Response(new Uint8Array(row.image), { headers: { 'Content-Type': row.image_type!, 'X-Content-Type-Options': 'nosniff' } });
     }
     if (path[2] === 'reviews') return Response.json({ reviews: row.reviews, stats: row.review_stats });
+    if (path[2] === 'media') {
+      const video = row.campaign.creative?.video;
+      if (!video) throw new AppError('NOT_FOUND', 'No video stored for this analysis.', 404);
+      return videoResponse(id, video.type, request.headers.get('range'));
+    }
     if (path[2] === 'report') {
       if (row.status !== 'completed') throw new AppError('REPORT_NOT_READY', 'The report is not complete. Poll the analysis status.', 409);
       return Response.json(row.report);
@@ -111,7 +154,7 @@ async function dispatch(request: Request, path: string[]) {
 export async function handle(request: Request, path: string[]) {
   const origin = request.headers.get('origin');
   const allowed = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',').map(v => v.trim());
-  const headers = new Headers({ 'Cache-Control': 'no-store', Vary: 'Origin' });
+  const headers = new Headers({ Vary: 'Origin' });
   let response: Response;
   try {
     if (origin && !allowed.includes(origin) && origin !== new URL(request.url).origin) throw new AppError('ORIGIN_NOT_ALLOWED', 'Origin is not allowed.', 403);
@@ -129,5 +172,6 @@ export async function handle(request: Request, path: string[]) {
     } }, { status: known ? error.status : validation ? 400 : 500 });
   }
   headers.forEach((value, key) => response.headers.set(key, value));
+  if (!response.headers.has('Cache-Control')) response.headers.set('Cache-Control', 'no-store');
   return response;
 }

@@ -45,3 +45,15 @@
 /* Persona suggestions */
 .persona-sub{margin:4px 0 2px 190px!important;font-size:12px;font-weight:600;color:#9e3918;text-transform:uppercase;letter-spacing:.04em}.persona-ideas{margin:0 0 14px 190px;font-size:14px;background:#f2f7f1;border-radius:12px;padding:12px 16px}.persona-ideas b{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#335a36}.persona-ideas ul{margin:6px 0 0}
 @media(max-width:800px){.persona-sub,.persona-ideas{margin-left:0!important}.dash-stats{grid-template-columns:1fr 1fr}.dash-howto{grid-template-columns:1fr}.dash-hero{flex-direction:column;align-items:flex-start}}
+.live-main select{padding:12px;border:1px solid #ccc;width:100%;font:inherit;background:#fff;min-height:46px}
+.audio-note{font-size:13px;color:#6b7265;background:#f6f7f2;border-radius:10px;padding:10px 14px}.audio-note.ok{background:#f2f7f1;color:#335a36}
+.live-main .transcript{grid-column:1/-1;border:0;padding:8px 0 0;font-size:13px}.live-main .transcript summary{font-size:14px;text-transform:none}.transcript p{margin:6px 0!important}.transcript span{display:inline-block;min-width:46px;color:#8a9083;font-variant-numeric:tabular-nums}.transcript-note{grid-column:1/-1;font-size:13px!important;color:#6b7265}
+/* Report video player */
+.player-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}.report-video{width:100%;max-height:520px;border-radius:14px;background:#111;display:block}
+.moments b,.script b{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#62695f;margin-bottom:8px}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+.script{max-height:300px;overflow:auto}.script p{margin:6px 0!important;font-size:14px}
+.live-main button.ts{all:unset;cursor:pointer;color:#a53c15;font-weight:600;font-variant-numeric:tabular-nums;border-bottom:1px dashed currentColor;line-height:1.2}.live-main button.ts:hover{color:#ff682c}.live-main button.ts:focus-visible{outline:2px solid #ff682c;outline-offset:2px}
+.live-main button.ts.chip{border:1px solid #e3c9bb;border-radius:999px;padding:4px 10px;font-size:12px;background:#fff7f2}
+.storyboard-full{max-width:100%;border-radius:12px;display:block;margin-bottom:12px}
+@media(max-width:800px){.player-grid{grid-template-columns:1fr}}
+.raw-transcript{border:0!important;padding:6px 0 0!important}.raw-transcript summary{font-size:12px!important;color:#6b7265}.raw-transcript p{color:#6b7265}

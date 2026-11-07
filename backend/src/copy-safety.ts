@@ -13,3 +13,10 @@ export function copyTemplate(problem: string) {
   if (/call.to.action|\bCTA\b/i.test(problem)) return { exampleCopy: 'Explore [exact product model]. Learn more.', proposedChange: 'Add a clear next step such as Learn more or Shop now, linked to the exact product.' };
   return { exampleCopy: '[Exact product model] — [verified benefit or specification]. Learn more.', proposedChange: 'Add the confirmed product information needed to address this concern; leave unknown details as placeholders until verified.' };
 }
+
+// Persona suggestions must not publish invented specifications, prices or durations ("30h battery",
+// "30-day warranty", "€99"). Figures become a placeholder; video timestamps such as "1.5 s" are kept.
+const FIGURE = /(?<![\p{L}\d.,[])[$€£]?\d+(?:[.,]\d+)?(?![\d.,])(?!\s?(?:s|sec|seconds)\b)(?![a-gi-ln-z])(?:\s?(?:%|€|\$|£|lei|ron|mah|db|h\b|hrs?\b|hours?\b|ore\b))?/giu;
+export function maskFigures(text: string) {
+  return text.replace(FIGURE, '[verified figure]');
+}

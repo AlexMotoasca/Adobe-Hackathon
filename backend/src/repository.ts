@@ -40,6 +40,18 @@ export async function saveImage(id: string, data: Buffer, type: string, creative
     WHERE id=$1 AND status IN ('draft','failed') RETURNING id`, [id, data, type, JSON.stringify(creative)]);
   if (!result.rowCount) { await getAnalysis(id); throw new AppError('CONFLICT', 'Uploads are allowed only for draft or failed analyses.', 409); }
 }
+export async function saveTranscript(id: string, audio: 'transcribed' | 'no_speech' | 'unavailable', transcript?: object) {
+  const creative = transcript ? { audio, transcript } : { audio };
+  const result = await db().query(`UPDATE analyses SET campaign=jsonb_set(campaign,'{creative}',(campaign->'creative') - 'transcript' || $2::jsonb),
+    outputs='{}',report=NULL,error=NULL,updated_at=now()
+    WHERE id=$1 AND status IN ('draft','failed') AND campaign->'creative'->>'kind'='video' RETURNING id`, [id, JSON.stringify(creative)]);
+  if (!result.rowCount) { await getAnalysis(id); throw new AppError('CONFLICT', 'Upload the video storyboard first; audio is accepted only for draft or failed video analyses.', 409); }
+}
+export async function saveVideoMeta(id: string, video: { type: string; size: number }) {
+  const result = await db().query(`UPDATE analyses SET campaign=jsonb_set(campaign,'{creative,video}',$2::jsonb),updated_at=now()
+    WHERE id=$1 AND status IN ('draft','failed') AND campaign->'creative'->>'kind'='video' RETURNING id`, [id, JSON.stringify(video)]);
+  if (!result.rowCount) { await getAnalysis(id); throw new AppError('CONFLICT', 'Upload the video storyboard first; the video file is accepted only for draft or failed video analyses.', 409); }
+}
 export async function saveReviews(id: string, reviews: Review[], stats: object) {
   const result = await db().query(`UPDATE analyses SET reviews=$2::jsonb,review_stats=$3::jsonb,status='draft',stage='draft',
     outputs='{}',report=NULL,error=NULL,updated_at=now() WHERE id=$1 AND status IN ('draft','failed') RETURNING id`, [id, JSON.stringify(reviews), JSON.stringify(stats)]);
@@ -56,6 +68,7 @@ export async function enqueue(id: string) {
 }
 
 export async function rerunAnalysis(id: string) {
+  const { copyVideo } = await import('./media');
   // Copy only inputs, preserving the original report and starting fresh research.
   const result = await db().query<AnalysisRow>(`INSERT INTO analyses
     (id,campaign,image,image_type,reviews,review_stats,status,stage)
@@ -66,6 +79,7 @@ export async function rerunAnalysis(id: string) {
     await getAnalysis(id);
     throw new AppError('CONFLICT', 'Only completed or failed analyses with a saved creative can be rerun.', 409);
   }
+  if (result.rows[0].campaign.creative?.video) await copyVideo(id, result.rows[0].id);
   return summary(result.rows[0]);
 }
 
