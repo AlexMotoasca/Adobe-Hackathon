@@ -56,13 +56,12 @@ export function fakeModel(withReviews = false): Model {
   let call = 0;
   return {
     textModel: 'test-double', visionModel: 'test-double',
-    async generate<T>(schema: z.ZodType<T>): Promise<T> {
+    async generate<T>(schema: z.ZodType<T>, instruction: string, data: any): Promise<T> {
       call++;
-      if (call === 1) return schema.parse({ visibleText: 'Bottle', product: 'Bottle', offer: '', cta: '', observedElements: ['Bottle'], benefits: [], claims: [], visualHierarchy: 'Bottle is central', interpretations: [], ambiguities: [] });
-      if (withReviews && call === 2) return schema.parse({ themes: [{ theme: 'Durability', sentiment: 'negative', reviewIds: ['r1'] }] });
-      const personaStart = withReviews ? 3 : 2;
-      if (call < personaStart + 5) return schema.parse({ ...persona, objections: [{ statement: 'Durability unclear', evidenceIds: withReviews ? ['r1'] : [] }] });
-      if (call === personaStart + 5) return schema.parse({ assessments: ['skeptic', 'impulsive', 'bargain', 'quality', 'rational'].map(p => ({ findingId: `${p}-1`, classification: withReviews ? 'contradicted' : 'hypothesis', evidenceIds: withReviews ? ['r1'] : [], explanation: 'Test-only assessment' })) });
+      if (instruction.startsWith('Inspect')) return schema.parse({ visibleText: 'Bottle', product: 'Bottle', offer: '', cta: '', observedElements: ['Bottle'], benefits: [], claims: [], visualHierarchy: 'Bottle is central', interpretations: [], ambiguities: [] });
+      if (instruction.startsWith('Extract')) return schema.parse({ themes: [{ theme: 'Durability', sentiment: 'negative', reviewIds: ['r1'] }] });
+      if (instruction.startsWith('Simulate')) return schema.parse({ ...persona, objections: [{ statement: 'Durability unclear', evidenceIds: withReviews ? ['r1'] : [] }] });
+      if (instruction.startsWith('Assess')) return schema.parse({ assessments: data.findings.map((f: { id: string }) => ({ findingId: f.id, classification: 'contradicted', evidenceIds: ['r1'], explanation: 'Test-only assessment' })) });
       return schema.parse({ executiveSummary: 'Test-only report', strengths: [], recommendations: [{ problem: 'Clarity', priority: 'high', personaIds: ['skeptic'], findingIds: ['skeptic-1'], rationale: 'Test clarity', proposedChange: 'Clarify claim', exampleCopy: 'See product details', testingHypothesis: 'Ask readers what they understand' }], limitations: [] });
     },
   };
@@ -134,9 +133,9 @@ test('three persona lanes overlap and checkpoint all results in stable order', a
 
 test('evidence validation batches resume without repeating successful checks', async () => {
   let checkpoint: Record<string, any> = {};
-  const input = { campaign, image: Buffer.from('test'), reviews: [] };
+  const input = { campaign, image: Buffer.from('test'), reviews: [{ id: 'r1', text: 'Fixture review', source: 'test fixture', relevance: 'category' as const }] };
   await runPipeline(input, fakeModel(), async (_stage, outputs) => { checkpoint = structuredClone(outputs); });
-  checkpoint.personas = checkpoint.personas.map((p: PersonaResult) => ({ ...p, objections: [1, 2].map(i => ({ id: `${p.persona}-${i}`, statement: 'Test concern', evidenceIds: [] })) }));
+  checkpoint.personas = checkpoint.personas.map((p: PersonaResult) => ({ ...p, retrievedEvidenceIds: ['r1'], objections: [1, 2].map(i => ({ id: `${p.persona}-${i}`, statement: 'Test concern', evidenceIds: ['r1'] })) }));
   delete checkpoint.assessments;
   delete checkpoint.assessmentBatches;
   let calls = 0;

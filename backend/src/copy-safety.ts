@@ -1,5 +1,11 @@
 // This MVP has category evidence, but no independently verified exact-product
 // fact/offer feed. Publishable specifications cannot be inferred from that evidence.
+// Example copy that states numbers, prices, rankings, guarantees or certifications could
+// publish unverified claims, so it is replaced by a placeholder template.
+const RISKY_COPY = /\d|[$€£¥%]|\b(best|#1|number one|guarantee[ds]?|certified|clinically|proven|award|cheapest|free)\b/i;
+export function safeCopy(rec: { problem: string; proposedChange: string; exampleCopy: string }) {
+  return RISKY_COPY.test(rec.exampleCopy) ? { proposedChange: rec.proposedChange, exampleCopy: copyTemplate(rec.problem).exampleCopy } : { proposedChange: rec.proposedChange, exampleCopy: rec.exampleCopy };
+}
 export function copyTemplate(problem: string) {
   if (/model|generation/i.test(problem)) return { exampleCopy: '[Exact product model] — explore the features. Learn more.', proposedChange: 'Identify the exact product model and link to its confirmed specifications.' };
   if (/price|pricing|cost|value|afford/i.test(problem)) return { exampleCopy: '[Exact product model] — [verified local price]. [Confirmed offer terms].', proposedChange: 'Display the verified local price and any confirmed offer terms alongside the purchase link.' };

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db';
 import { AppError } from './errors';
-import type { Campaign, Review, AnalysisStatus, AnalysisReport } from './contracts';
+import type { Campaign, Creative, Review, AnalysisStatus, AnalysisReport } from './contracts';
 
 export interface AnalysisRow {
-  id: string; campaign: Campaign; status: AnalysisStatus; stage: string;
+  id: string; campaign: Campaign & { creative?: Creative }; status: AnalysisStatus; stage: string;
   image: Buffer | null; image_type: string | null; reviews: Review[];
   review_stats: { received: number; accepted: number; duplicates: number };
   outputs: Record<string, unknown>; report: AnalysisReport | null;
@@ -14,7 +14,7 @@ export interface AnalysisRow {
 
 export function summary(row: AnalysisRow) {
   return { id: row.id, campaign: row.campaign, status: row.status, stage: row.stage,
-    hasImage: !!row.image_type, imageUrl: row.image_type ? `/api/analyses/${row.id}/image` : null,
+    hasImage: !!row.image_type, creative: row.campaign.creative ?? { kind: 'image' }, imageUrl: row.image_type ? `/api/analyses/${row.id}/image` : null,
     reviewStats: row.review_stats, error: row.error, createdAt: row.created_at, updatedAt: row.updated_at,
     completedPersonas: Array.isArray(row.outputs?.personas) ? row.outputs.personas.length : 0 };
 }
@@ -33,9 +33,11 @@ export async function listAnalyses(limit: number, offset: number) {
     FROM analyses ORDER BY created_at DESC,id LIMIT $1 OFFSET $2`, [limit, offset]);
   return result.rows.map(summary);
 }
-export async function saveImage(id: string, data: Buffer, type: string) {
-  const result = await db().query(`UPDATE analyses SET image=$2,image_type=$3,status='draft',stage='draft',
-    outputs='{}',report=NULL,error=NULL,updated_at=now() WHERE id=$1 AND status IN ('draft','failed') RETURNING id`, [id, data, type]);
+export async function saveImage(id: string, data: Buffer, type: string, creative: Creative = { kind: 'image' }) {
+  // Creative metadata lives beside the campaign so reruns copy it without a schema migration.
+  const result = await db().query(`UPDATE analyses SET image=$2,image_type=$3,campaign=campaign || jsonb_build_object('creative',$4::jsonb),
+    status='draft',stage='draft',outputs='{}',report=NULL,error=NULL,updated_at=now()
+    WHERE id=$1 AND status IN ('draft','failed') RETURNING id`, [id, data, type, JSON.stringify(creative)]);
   if (!result.rowCount) { await getAnalysis(id); throw new AppError('CONFLICT', 'Uploads are allowed only for draft or failed analyses.', 409); }
 }
 export async function saveReviews(id: string, reviews: Review[], stats: object) {

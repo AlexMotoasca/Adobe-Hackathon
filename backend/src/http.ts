@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { campaignSchema } from './contracts';
+import { campaignSchema, creativeSchema } from './contracts';
 import { AppError } from './errors';
 import { db } from './db';
 import { createAnalysis, listAnalyses, getAnalysis, summary, saveImage, saveReviews, enqueue, rerunAnalysis } from './repository';
@@ -69,6 +69,17 @@ async function dispatch(request: Request, path: string[]) {
     const file = await upload(request, MAX_IMAGE_BYTES);
     const image = await ingestImage(file.bytes);
     await saveImage(id, image.data, image.type);
+    return Response.json(summary(await getAnalysis(id)));
+  }
+  if (path[2] === 'video' && method === 'POST') {
+    // The browser samples frames into one labelled storyboard image; raw video never reaches the server.
+    const search = new URL(request.url).searchParams;
+    const creative = creativeSchema.parse({ kind: 'video', durationSeconds: Number(search.get('duration')),
+      frameTimes: (search.get('frames') ?? '').split(',').filter(Boolean).map(Number) });
+    if (!creative.frameTimes?.length) throw new AppError('INVALID_UPLOAD', 'Supply the sampled frame timestamps.');
+    const file = await upload(request, MAX_IMAGE_BYTES);
+    const image = await ingestImage(file.bytes);
+    await saveImage(id, image.data, image.type, creative);
     return Response.json(summary(await getAnalysis(id)));
   }
   if (path[2] === 'reviews' && method === 'POST') {

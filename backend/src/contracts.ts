@@ -9,6 +9,13 @@ export const campaignSchema = z.object({
   productDescription: z.string().max(4000).optional(),
   productUrl: z.string().url().max(2000).refine(v => /^https?:\/\//.test(v)).optional(),
 });
+// Set by the server on upload (never by campaign input): what kind of creative was analysed.
+export const creativeSchema = z.object({
+  kind: z.enum(['image', 'video']),
+  durationSeconds: z.number().min(0.5).max(600).optional(),
+  frameTimes: z.array(z.number().min(0).max(600)).max(12).optional(),
+});
+export type Creative = z.infer<typeof creativeSchema>;
 export const relevanceSchema = z.enum(['exact_product', 'similar_product', 'category', 'unknown']);
 export const reviewSchema = z.object({
   id: z.string(), text: text.max(4000), source: text.max(300),
@@ -26,12 +33,13 @@ export const insightsSchema = z.object({ themes: z.array(z.object({
   theme: text, sentiment: z.enum(['positive', 'negative', 'mixed', 'neutral']),
   reviewIds: ids.min(1),
 })).max(12) });
+// Psychological profiles used as lenses on the ad. Keys are stable for saved reports and routing.
 export const PERSONAS = {
-  skeptic: 'Credibility, unsupported promises, proof, purchase risk and transparency',
-  impulsive: 'Visual impact, emotion, hook, simplicity and CTA clarity',
-  bargain: 'Price, value, discounts, extra costs and promotion conditions',
-  quality: 'How the ad communicates quality, differentiation and credible proof of its advertised benefit',
-  rational: 'Clarity of the advertised benefit, audience relevance and the next action',
+  skeptic: 'a trust-driven buyer who needs credibility before acting: specific claims, social proof, authority, transparency and risk reversal; hype and vague superlatives push them away',
+  impulsive: 'a fast, emotional (System 1) scroller who decides in the first 1-3 seconds: visual salience, emotion, novelty, faces or motion, one simple message and an obvious next step',
+  bargain: 'a value-seeker who weighs what they get against what it costs: price anchoring, offer framing, loss aversion and urgency, and clear reasons the product is worth it',
+  quality: 'an aspirational, identity-driven buyer: craftsmanship and premium cues, brand personality, aesthetics, differentiation and what owning it says about them',
+  rational: 'a deliberate (System 2) planner: a clear benefit, who it is for, how it fits their life, comparison with alternatives and a concrete next action',
 } as const;
 export const personaKeySchema = z.enum(['skeptic', 'impulsive', 'bargain', 'quality', 'rational']);
 export const findingSchema = z.object({ statement: text, evidenceIds: ids });
@@ -57,13 +65,13 @@ const brief = z.string().trim().min(1).max(240);
 const briefList = z.array(brief).max(2);
 export const conciseInsightsSchema = insightsSchema.extend({ themes: z.array(insightsSchema.shape.themes.element.extend({ theme: z.string().trim().min(1).max(100) })).max(5) });
 export const concisePersonaSchema = personaSchema.extend({
-  firstImpression: brief, strengths: briefList,
+  firstImpression: brief, strengths: z.array(brief).max(3),
   objections: z.array(findingSchema.extend({ statement: brief })).max(3),
   missingInformation: briefList, claimsRequiringVerification: briefList,
-  recommendations: briefList, testingQuestions: briefList,
+  recommendations: z.array(brief).max(3), testingQuestions: briefList,
 });
 export const conciseSynthesisSchema = synthesisSchema.extend({
-  executiveSummary: brief, strengths: briefList,
+  executiveSummary: brief, strengths: z.array(brief).max(3),
   recommendations: z.array(synthesisSchema.shape.recommendations.element.extend({
     problem: brief, rationale: brief, proposedChange: brief, exampleCopy: brief, testingHypothesis: brief,
   })).max(3), limitations: briefList,
@@ -78,6 +86,7 @@ export type Assessment = z.infer<typeof assessmentsSchema>['assessments'][number
 export interface AnalysisReport {
   version: 1;
   campaign: Campaign;
+  creative?: Creative;
   ad: z.infer<typeof adSchema>;
   personas: PersonaResult[];
   consumerInsights: { datasetSize: number; themes: (z.infer<typeof insightsSchema>['themes'][number] & { frequency: number })[] };

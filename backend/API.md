@@ -6,6 +6,7 @@ Base URL: `http://localhost:3001/api`. API-only Next.js application; frontend st
 
 1. `POST /analyses` with JSON campaign context → **201**, analysis summary.
 2. `POST /analyses/{id}/image` with multipart field `file` → **200**, analysis summary.
+2b. For a video ad, instead `POST /analyses/{id}/video?duration=14.6&frames=0.3,1.5,2.5,...` with multipart field `file` = a JPEG storyboard of the sampled frames (the frontend builds a labelled 3×3 grid in the browser; raw video is never uploaded) → **200**, analysis summary with `creative: { kind: 'video', durationSeconds, frameTimes }`.
 3. Optionally `POST /analyses/{id}/reviews` with multipart field `file` → **200**, `{ reviews, stats }`.
 4. `POST /analyses/{id}/start` → **202**, analysis summary. Run the worker separately. Duplicate starts while queued/running are idempotent.
 5. Poll `GET /analyses/{id}` every 2–3 seconds. Stop on `completed` or `failed`.

@@ -9,7 +9,7 @@ On Windows run start-fullstack.cmd. It starts the frontend on port 3000, backend
 ## Workflow
 - The dashboard lists only analyses returned by PostgreSQL, with pagination.
 - Create a campaign using the seven required context fields.
-- Upload a PNG, JPEG or WebP creative (4 MiB maximum). Category research collects web excerpts and YouTube audience comments automatically; no CSV is required. The frontend accepts only the creative image; the legacy review-upload API remains available for existing integrations.
+- Upload an image ad (PNG, JPEG or WebP, 4 MiB maximum) or a video ad (MP4, WebM or MOV, up to 10 minutes). The browser samples a video into a labelled 9-frame storyboard. The opening seconds are sampled closely and the final frame is included, and only the storyboard is uploaded. Audio is not analysed. Category research collects web excerpts and YouTube audience comments automatically; no CSV is required. The frontend accepts only the creative image; the legacy review-upload API remains available for existing integrations.
 - Start analysis and follow backend stage updates every 2.5 seconds.
 - Completed reports show generated recommendations, personas, evidence assessments, source reviews and limitations.
 - Failed analyses can be retried; draft and failed analyses allow replacement uploads.
@@ -33,6 +33,25 @@ Reports show an evidence summary at the top (retained sources, sources supplied 
 
 API references: [Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search), [YouTube search](https://developers.google.com/youtube/v3/docs/search/list), [YouTube comments](https://developers.google.com/youtube/v3/docs/commentThreads/list).
 
+## Feedback approach
+
+The analysis gives feedback on the ADVERTISING, not a verdict on the product. Five simulated audience members review each ad, each with a different buying psychology:
+- the skeptic, who needs trust and proof
+- the System-1 scroller, who decides in about 3 seconds
+- the value seeker
+- the aspirational, identity-driven buyer
+- the System-2 planner
+
+Each one reports what works on them, what loses them, and up to 3 suggestions. Each suggestion names the psychological principle it uses, for example social proof or loss aversion. For video ads, they also judge the opening hook, the pacing and the ending. The creative-director summary then keeps the strengths and picks the 3 highest-impact changes. The model's suggested changes are kept as written. Example copy that states numbers, prices, rankings, guarantees or certifications is replaced with a placeholder template, so the report never publishes unverified claims.
+
+## Speed and retrieval
+
+- The ad's image is read while the web research runs, because neither step needs the other's result. Tavily queries, YouTube comment threads, and the two providers are all fetched at the same time. Request limits are the same as before.
+- Customer themes are generated while the personas run.
+- Findings with no cited source become `hypothesis` directly, with no model call. Only cited findings go to evidence validation.
+- Text sent to the evidence filter is trimmed to 1,000 characters per source, and customer-theme input to 600, so prompts are smaller.
+- Persona evidence retrieval ranks sources with BM25 and ignores stopwords. Sources the filter has already validated get a boost. Sources from the same site or video, and near-duplicate wording, are penalized so each persona sees a range of views. The search query combines the persona's focus, the category, the comparison group, and the ad's own claims, benefits and offer. Excerpts are still contiguous original text, now starting on a sentence boundary.
+
 ## Frontend structure
 
 ### Persona inputs and team routing
@@ -48,9 +67,9 @@ GROQ_TEAM_2_API_KEY=second_team_key
 GROQ_TEAM_3_API_KEY=third_team_key
 ```
 
-Fixed assignments run concurrently: key 1 handles skeptic; key 2 handles impulsive then bargain; key 3 handles quality then rational. At most three persona requests run simultaneously, with one active request per assignment. Research filtering and evidence-validation batches use fixed round-robin assignments across the three keys (batches 1/4/7 on key 1, 2/5 on key 2, 3/6 on key 3). Batches remain sequential to limit bursts. Research filtering uses GROQ_RESEARCH_MODEL on each key; validation uses each assigned persona model. Planning, image interpretation, consumer insights and final synthesis remain on the main key. Retrying a saved analysis preserves prior research; use Rerun analysis for fresh collection with the new assignments. Optional `GROQ_TEAM_1_MODEL`, `GROQ_TEAM_2_MODEL`, and `GROQ_TEAM_3_MODEL` override persona models; otherwise all use `GROQ_TEXT_MODEL`. Team routing requires all three keys and rejects duplicate key values. Separate keys do not establish separate organization quotas or authorization to combine quotas.
+Fixed assignments run concurrently: key 1 handles skeptic; key 2 handles impulsive then bargain; key 3 handles quality then rational. At most three persona requests run simultaneously, with one active request per assignment. Research filtering and evidence-validation batches use fixed round-robin assignments across the three keys (batches 1/4/7 on key 1, 2/5 on key 2, 3/6 on key 3). Each key processes its batches in order; different keys run in parallel. Research filtering uses GROQ_RESEARCH_MODEL on each key; validation uses each assigned persona model. Planning, image interpretation, consumer insights and final synthesis remain on the main key. Retrying a saved analysis preserves prior research; use Rerun analysis for fresh collection with the new assignments. Optional `GROQ_TEAM_1_MODEL`, `GROQ_TEAM_2_MODEL`, and `GROQ_TEAM_3_MODEL` override persona models; otherwise all use `GROQ_TEXT_MODEL`. Team routing requires all three keys and rejects duplicate key values. Separate keys do not establish separate organization quotas or authorization to combine quotas.
 
-Requests retry on their assigned key only. They never switch keys after throttling; long provider cooldowns fail with a resumable error. Successful persona checkpoints are saved serially, and failed runs wait for in-flight assignments to settle before reporting failure. Restart the worker after changing configuration. No speedup is claimed until measured with the configured accounts.
+Requests retry on their assigned key only. They never switch keys after throttling; long provider cooldowns fail with a resumable error. Successful persona checkpoints are saved serially, and failed runs wait for in-flight assignments to settle before reporting failure. Restart the worker after changing configuration; its startup line shows whether team routing is active. Run `npm run check:provider -- --models-only` from backend to confirm all three keys can reach the configured models without spending tokens. No speedup is claimed until measured with the configured accounts.
 
 - js/live-app.js: navigation, dashboard, campaign creation and execution
 - js/live-api.js: requests, uploads and error handling

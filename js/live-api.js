@@ -11,3 +11,8 @@ export function upload(id, kind, file) {
   return request('/analyses/' + encodeURIComponent(id) + '/' + kind, {method:'POST', body});
 }
 export const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function uploadVideo(id, storyboard, duration, times) {
+  const body = new FormData(); body.set('file', storyboard, 'storyboard.jpg');
+  const query = new URLSearchParams({ duration: String(duration), frames: times.join(',') });
+  return request('/analyses/' + encodeURIComponent(id) + '/video?' + query, {method:'POST', body});
+}

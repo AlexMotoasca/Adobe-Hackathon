@@ -9,6 +9,7 @@
     "start": "next start -p 3001",
     "worker": "tsx --env-file=.env.local src/worker.ts",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "check:provider": "tsx --env-file=.env.local scripts/check-provider.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },

@@ -1,0 +1,22 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend-new",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-H", "127.0.0.1", "-p", "3011"],
+      "cwd": "backend",
+      "env": { "CORS_ORIGINS": "http://localhost:3010,http://127.0.0.1:3010" },
+      "port": 3011,
+      "autoPort": false
+    },
+    {
+      "name": "frontend-new",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "env": { "PORT": "3010", "BACKEND_PORT": "3011" },
+      "port": 3010,
+      "autoPort": false
+    }
+  ]
+}

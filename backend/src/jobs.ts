@@ -23,7 +23,7 @@ export async function executeJob(job: AnalysisRow, model: Model) {
       assigned.maxOutputTokens = 2500;
       return assigned;
     });
-    const report = await runPipeline({ campaign: job.campaign, image: job.image!, reviews: job.reviews }, model, async (stage, outputs) => {
+    const report = await runPipeline({ campaign: job.campaign, image: job.image!, reviews: job.reviews, creative: job.campaign.creative }, model, async (stage, outputs) => {
       if (lostLease) throw new AppError('LEASE_LOST', 'Worker lease lost; another worker can resume.', 503);
       const result = await db().query(`UPDATE analyses SET stage=$3,outputs=$4::jsonb,updated_at=now()
         WHERE id=$1 AND lease_token=$2 AND status='running'`, [job.id, job.lease_token, stage, JSON.stringify(outputs)]);
