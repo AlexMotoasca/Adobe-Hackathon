@@ -112,6 +112,8 @@ These are AI assessments with deterministic ID/coverage checks, not human verifi
 
 Asynchronous provider errors appear in the analysis `error` with status `failed`, not in the already-returned start response. Codes include `PROVIDER_ERROR`, `PROVIDER_UNAVAILABLE`, `INVALID_MODEL_OUTPUT`, `INVALID_EVIDENCE`, `PIPELINE_FAILED`.
 
+The model adapter makes at most three attempts per call, including retries for invalid JSON, truncated output and schema mismatches. Truncated output receives a larger token budget; GPT-OSS calls use low reasoning effort. Validation remains mandatory on every attempt. Exhausted output retries include a diagnostic category (`token_limit`, `malformed_json`, `schema_mismatch`, or `incomplete_response`) without exposing the provider response. Restarting a failed analysis reuses its completed checkpoints.
+
 ## Minimal browser client
 
 ```ts

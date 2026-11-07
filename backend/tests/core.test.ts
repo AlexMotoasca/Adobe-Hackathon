@@ -129,3 +129,34 @@ test('Groq adapter validates JSON and never exposes provider error bodies', asyn
     if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
   }
 });
+test('Groq retries malformed, truncated and schema-invalid responses without accepting partial data', async () => {
+  const originalFetch = globalThis.fetch;
+  const oldKey = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = 'test-key';
+  try {
+    for (const failure of [
+      { finish_reason: 'length', message: { content: '{"value":' } },
+      { finish_reason: 'stop', message: { content: 'not JSON' } },
+      { finish_reason: 'stop', message: { content: '{"value":12}' } },
+    ]) {
+      const requests: any[] = [];
+      globalThis.fetch = async (_url, init) => {
+        requests.push(JSON.parse(init!.body as string));
+        return Response.json({ choices: [requests.length === 1 ? failure : { finish_reason: 'stop', message: { content: '{"value":"valid"}' } }] });
+      };
+      const model = new GroqModel(); model.textModel = 'openai/gpt-oss-120b';
+      assert.deepEqual(await model.generate(z.object({ value: z.string() }), 'test', {}), { value: 'valid' });
+      assert.equal(requests.length, 2);
+      assert.equal(requests[0].reasoning_effort, 'low');
+      assert.match(requests[1].messages[1].content, /previous attempt failed validation/);
+      if (failure.finish_reason === 'length') assert.equal(requests[1].max_completion_tokens, 9000);
+    }
+    let attempts = 0;
+    globalThis.fetch = async () => { attempts++; return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{}' } }] }); };
+    await assert.rejects(new GroqModel().generate(z.object({ value: z.string() }), 'test', {}), /schema_mismatch/);
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
