@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mindmarket
+      POSTGRES_PASSWORD: mindmarket
+      POSTGRES_DB: mindmarket
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - mindmarket_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindmarket -d mindmarket"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  mindmarket_pg:
