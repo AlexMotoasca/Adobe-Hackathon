@@ -1,0 +1,69 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import sharp from 'sharp';
+import { z } from 'zod';
+import { db } from '../src/db';
+import { handle } from '../src/http';
+import { claimJob, getAnalysis } from '../src/repository';
+import { executeJob } from '../src/jobs';
+import type { Model } from '../src/ai';
+
+test('PostgreSQL API lifecycle, job claiming, recovery, failure and durable report', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const connection = process.env.TEST_DATABASE_URL!;
+  if (!new URL(connection).pathname.endsWith('_test')) throw new Error('TEST_DATABASE_URL must point to a dedicated database ending in _test');
+  process.env.DATABASE_URL = connection;
+  process.env.GROQ_API_KEY = 'test-only';
+  const pool = db();
+  const created: string[] = [];
+  const request = (path: string[], method = 'GET', body?: BodyInit, contentType?: string) => handle(new Request(`http://localhost/api/${path.join('/')}`, { method, body, headers: contentType ? { 'Content-Type': contentType } : undefined }), path);
+  try {
+    await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'));
+    const campaign = { brand: 'Integration fixture', product: 'Bottle', category: 'Home', targetAudience: 'Commuters', objective: 'Awareness', market: 'RO', language: 'en' };
+    const create = await request(['analyses'], 'POST', JSON.stringify(campaign), 'application/json');
+    assert.equal(create.status, 201);
+    const { id } = await create.json(); created.push(id);
+    assert.equal((await request(['analyses', id, 'start'], 'POST')).status, 409);
+    const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: 'red' } }).png().toBuffer();
+    const form = new FormData(); form.set('file', new Blob([new Uint8Array(image)]), 'ad.png');
+    assert.equal((await request(['analyses', id, 'image'], 'POST', form)).status, 200);
+    const reviews = new FormData(); reviews.set('file', new Blob(['text,source\nA useful bottle,test fixture']), 'reviews.csv');
+    assert.equal((await request(['analyses', id, 'reviews'], 'POST', reviews)).status, 200);
+    assert.equal((await request(['analyses', id, 'start'], 'POST')).status, 202);
+    assert.equal((await request(['analyses', id, 'start'], 'POST')).status, 202);
+    assert.equal((await request(['analyses', id, 'image'], 'POST', form)).status, 409);
+    assert.equal((await request(['analyses', id, 'report'])).status, 409);
+    const claims = await Promise.all([claimJob(), claimJob()]);
+    assert.equal(claims.filter(Boolean).length, 1);
+    const first = claims.find(Boolean)!;
+    assert.equal(first.id, id);
+    await pool.query("UPDATE analyses SET lease_until=now()-interval '1 minute' WHERE id=$1", [id]);
+    const recovered = (await claimJob())!;
+    assert.notEqual(recovered.lease_token, first.lease_token);
+    let calls = 0;
+    const model: Model = { textModel: 'test-double', visionModel: 'test-double', async generate<T>(schema: z.ZodType<T>) {
+      calls++;
+      if (calls === 1) return schema.parse({ visibleText: '', product: 'Bottle', offer: '', cta: '', observedElements: [], benefits: [], claims: [], visualHierarchy: 'Central', interpretations: [], ambiguities: [] });
+      if (calls === 2) return schema.parse({ themes: [] });
+      if (calls < 8) return schema.parse({ firstImpression: 'Test fixture', strengths: [], objections: [], missingInformation: [], claimsRequiringVerification: [], recommendations: [], testingQuestions: [] });
+      return schema.parse({ executiveSummary: 'Test report', strengths: [], recommendations: [], limitations: [] });
+    } };
+    assert.equal(await executeJob(first, model), 'LEASE_LOST');
+    assert.equal(calls, 0);
+    assert.equal(await executeJob(recovered, { ...model, async generate() { throw new Error('simulated outage'); } }), 'PIPELINE_FAILED');
+    assert.equal((await getAnalysis(id)).status, 'failed');
+    assert.equal((await request(['analyses', id, 'start'], 'POST')).status, 202);
+    assert.equal(await executeJob((await claimJob())!, model), 'completed');
+    const reportResponse = await request(['analyses', id, 'report']);
+    assert.equal(reportResponse.status, 200);
+    const report = await reportResponse.json();
+    assert.equal(report.personas.length, 5);
+    assert.equal(report.sources[0].text, 'A useful bottle');
+    assert.equal((await getAnalysis(id)).status, 'completed');
+    assert.equal((await request(['analyses', id, 'start'], 'POST')).status, 409);
+    assert.equal((await request(['analyses', id, 'image'])).headers.get('Content-Type'), 'image/jpeg');
+  } finally {
+    for (const id of created) await pool.query('DELETE FROM analyses WHERE id=$1', [id]);
+    await pool.end();
+  }
+});
