@@ -1,6 +1,6 @@
 import { db } from './db';
 import type { AnalysisRow } from './repository';
-import { type Model } from './ai';
+import { GroqModel, type Model } from './ai';
 import { runPipeline } from './pipeline';
 import { AppError } from './errors';
 
@@ -12,12 +12,15 @@ export async function executeJob(job: AnalysisRow, model: Model) {
       .then(r => { if (!r.rowCount) lostLease = true; }).catch(() => { lostLease = true; });
   }, 15000);
   try {
+    const researchModel = new GroqModel();
+    researchModel.textModel = process.env.GROQ_RESEARCH_MODEL || model.textModel;
+    researchModel.maxOutputTokens = 2500;
     const report = await runPipeline({ campaign: job.campaign, image: job.image!, reviews: job.reviews }, model, async (stage, outputs) => {
       if (lostLease) throw new AppError('LEASE_LOST', 'Worker lease lost; another worker can resume.', 503);
       const result = await db().query(`UPDATE analyses SET stage=$3,outputs=$4::jsonb,updated_at=now()
         WHERE id=$1 AND lease_token=$2 AND status='running'`, [job.id, job.lease_token, stage, JSON.stringify(outputs)]);
       if (!result.rowCount) throw new AppError('LEASE_LOST', 'Worker lease lost.', 503);
-    }, job.outputs);
+    }, job.outputs, researchModel);
     if (lostLease) throw new AppError('LEASE_LOST', 'Worker lease lost.', 503);
     const result = await db().query(`UPDATE analyses SET status='completed',stage='completed',report=$3::jsonb,
       lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='running'`, [job.id, job.lease_token, JSON.stringify(report)]);

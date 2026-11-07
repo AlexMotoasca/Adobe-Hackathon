@@ -55,9 +55,9 @@ export const synthesisSchema = z.object({
 export type Campaign = z.infer<typeof campaignSchema>;
 export type Review = z.infer<typeof reviewSchema>;
 export type PersonaKey = keyof typeof PERSONAS;
-export type Stage = 'ad_interpretation' | 'consumer_insights' | 'personas' | 'evidence_validation' | 'synthesis';
+export type Stage = 'ad_interpretation' | 'category_research' | 'consumer_insights' | 'personas' | 'evidence_validation' | 'synthesis';
 export type AnalysisStatus = 'draft' | 'queued' | 'running' | 'completed' | 'failed';
-export type PersonaResult = z.infer<typeof personaSchema> & { persona: PersonaKey; retrievedEvidenceIds: string[]; objections: (z.infer<typeof findingSchema> & { id: string })[] };
+export type PersonaResult = Omit<z.infer<typeof personaSchema>, 'objections'> & { persona: PersonaKey; retrievedEvidenceIds: string[]; objections: (z.infer<typeof findingSchema> & { id: string })[] };
 export type Assessment = z.infer<typeof assessmentsSchema>['assessments'][number];
 export interface AnalysisReport {
   version: 1;
@@ -70,6 +70,7 @@ export interface AnalysisReport {
     recommendations: (z.infer<typeof synthesisSchema>['recommendations'][number] & { evidenceIds: string[]; assessments: Assessment[] })[];
   };
   sources: Review[];
+  research?: import('./research').Research;
   limitations: string[];
   models: { text: string; vision: string };
 }

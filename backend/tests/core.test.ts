@@ -104,6 +104,34 @@ test('stream limits apply without Content-Length', async () => {
   const request = new Request('http://localhost/api', { method: 'POST', body: '12345' });
   await assert.rejects(readBounded(request, 4), /limit/);
 });
+
+test('evidence validation batches resume without repeating successful checks', async () => {
+  let checkpoint: Record<string, any> = {};
+  const input = { campaign, image: Buffer.from('test'), reviews: [] };
+  await runPipeline(input, fakeModel(), async (_stage, outputs) => { checkpoint = structuredClone(outputs); });
+  checkpoint.personas = checkpoint.personas.map((p: PersonaResult) => ({ ...p, objections: [1, 2].map(i => ({ id: `${p.persona}-${i}`, statement: 'Test concern', evidenceIds: [] })) }));
+  delete checkpoint.assessments;
+  delete checkpoint.assessmentBatches;
+  let calls = 0;
+  let fail = true;
+  const checkedSizes: number[] = [];
+  const model: Model = { textModel: 'test', visionModel: 'test', async generate<T>(schema: z.ZodType<T>, instruction: string, data: any) {
+    if (instruction.startsWith('Assess')) {
+      calls++;
+      if (calls === 2 && fail) throw new Error('temporary quota');
+      checkedSizes.push(data.findings.length);
+      return schema.parse({ assessments: data.findings.map((f: any) => ({ findingId: f.id, classification: 'hypothesis', evidenceIds: [], explanation: 'No evidence' })) });
+    }
+    return schema.parse({ executiveSummary: 'Resumed', strengths: [], recommendations: [], limitations: [] });
+  } };
+  const save = async (_stage: unknown, outputs: Record<string, unknown>) => { checkpoint = structuredClone(outputs); };
+  await assert.rejects(runPipeline(input, model, save, checkpoint), /temporary quota/);
+  assert.equal(checkpoint.assessmentBatches.length, 1);
+  fail = false;
+  const report = await runPipeline(input, model, save, checkpoint);
+  assert.deepEqual(checkedSizes, [6, 4]);
+  assert.equal(report.assessments.length, 10);
+});
 test('API rejects malformed requests and forbidden origins before database access', async () => {
   const invalid = await handle(new Request('http://localhost/api/analyses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }), ['analyses']);
   assert.equal(invalid.status, 400);

@@ -134,3 +134,10 @@ const start = await fetch(`${base}/analyses/${analysis.id}/start`, { method: 'PO
 if (!start.ok) throw new Error((await start.json()).error.message);
 // Poll GET /analyses/:id; only request the report after status === 'completed'.
 ```
+# Category research extension
+
+The worker now emits `category_research` between `ad_interpretation` and `consumer_insights`. Starting an analysis automatically collects evidence from configured Tavily and YouTube providers; review uploads are optional.
+
+Completed reports optionally include `research` (older reports remain compatible): `plan` (category, comparisonGroup, queries), `fetchedAt`, `model`, `providers` (name, status, count before deduplication/filtering), `warnings`, `reviews` (retained evidence), `criteria`, and `competitors`. Criteria and competitor observations cite source IDs. Live evidence is also included in the report's existing `sources` array. Provider states are `ok`, `partial`, `unavailable`, or `not_configured`; `ok` means requests succeeded, not that relevant evidence was found.
+
+Research is saved in analysis checkpoints and reused on retries. Upload replacement resets checkpoints as before. No additional endpoint or migration is required. Credentials are server environment variables: `TAVILY_API_KEY`, `YOUTUBE_API_KEY`, optional `GROQ_RESEARCH_MODEL`.
