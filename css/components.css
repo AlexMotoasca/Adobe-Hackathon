@@ -151,6 +151,7 @@
   font-weight: var(--weight-regular);
   letter-spacing: -0.02em;
   line-height: 1.0;
+  text-align: center;
   cursor: pointer;
   border: none;
   text-decoration: none;
