@@ -160,7 +160,7 @@ test('evidence validation batches resume without repeating successful checks', a
 });
 test('API rejects malformed requests and forbidden origins before database access', async () => {
   const invalid = await handle(new Request('http://localhost/api/analyses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }), ['analyses']);
-  assert.equal(invalid.status, 400);
+  assert.equal(invalid.status, 401, 'anonymous requests are rejected before validation or database access');
   const forbidden = await handle(new Request('http://localhost/api/analyses', { headers: { Origin: 'https://untrusted.example' } }), ['analyses']);
   assert.equal(forbidden.status, 403);
   const preflight = await handle(new Request('http://localhost/api/analyses', { method: 'OPTIONS', headers: { Origin: 'http://localhost:3000' } }), ['analyses']);

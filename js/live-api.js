@@ -1,7 +1,7 @@
 export async function request(path, options = {}) {
   const response = await fetch('/api' + path, { ...options, signal: options.signal || AbortSignal.timeout(30000) });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error?.message || 'Request failed (' + response.status + ')');
+  if (!response.ok) throw Object.assign(new Error(data?.error?.message || 'Request failed (' + response.status + ')'), {status: response.status, code: data?.error?.code});
   if (!data) throw new Error('The server returned an invalid response.');
   return data;
 }

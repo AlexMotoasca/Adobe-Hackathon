@@ -63,3 +63,19 @@ test('a rate-limited model falls back to the next model on the same key, never a
     if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old;
   }
 });
+
+test('Groq json_validate_failed (HTTP 400) is retried instead of failing the analysis', async () => {
+  const fetcher = globalThis.fetch;
+  const old = process.env.GROQ_API_KEY; process.env.GROQ_API_KEY = 'key-one';
+  let calls = 0;
+  try {
+    globalThis.fetch = async () => ++calls === 1
+      ? Response.json({ error: { code: 'json_validate_failed', message: 'Failed to generate JSON' } }, { status: 400 })
+      : Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"ok":true}' } }] });
+    assert.deepEqual(await new GroqModel().generate(z.object({ ok: z.boolean() }), 'Test', {}), { ok: true });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = fetcher;
+    if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old;
+  }
+});

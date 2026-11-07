@@ -33,6 +33,37 @@ Reports show an evidence summary at the top (retained sources, sources supplied 
 
 API references: [Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search), [YouTube search](https://developers.google.com/youtube/v3/docs/search/list), [YouTube comments](https://developers.google.com/youtube/v3/docs/commentThreads/list).
 
+## Sign in with Google
+
+The landing page (`/`) is public and shows how many marketers have signed up. The dashboard, analysis pages and every `/api/analyses` route need a signed-in user. Each user sees their own reviews; reviews created before sign-in existed stay visible to every signed-in user.
+
+**Setup (one time):**
+1. In Google Cloud Console, open **APIs & Services → Credentials → Create credentials → OAuth client ID**. Choose **Web application**. (Configure the OAuth consent screen first if prompted; External with yourself as a test user is enough for local use.)
+2. Under **Authorized redirect URIs**, add `http://localhost:3000/api/auth/google/callback`.
+3. Add the client ID and secret to `backend/.env.local`:
+   ```env
+   GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=...
+   APP_ORIGIN=http://localhost:3000
+   ```
+4. Apply the database migration (`npm run db:migrate` in `backend`) and restart the backend.
+
+**How it works:**
+- The flow is an OAuth 2.0 authorization-code flow with PKCE and a `state` check, both held in a short-lived HttpOnly cookie.
+- Only verified Google emails are accepted. The ID token's issuer, audience and expiry are checked.
+- Sessions are stored server-side, and only a SHA-256 hash of the token is kept in the database. The browser holds the raw token in an HttpOnly, SameSite=Lax cookie (`Secure` on https) that lasts 30 days.
+- After sign-in, only relative paths are accepted as redirect targets.
+
+**Endpoints:**
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/auth/google` | Starts sign-in |
+| `GET /api/auth/google/callback` | Google redirects back here |
+| `GET /api/auth/me` | Current user, or 401 |
+| `POST /api/auth/logout` | Ends the session |
+| `GET /api/stats` | Public: `{ users, googleConfigured }` |
+
 ## Video playback and transcripts
 
 - For a video, the browser uploads three things:
@@ -66,6 +97,10 @@ Each one reports what works on them, what loses them, and up to 3 suggestions. E
 - Persona evidence retrieval ranks sources with BM25 and ignores stopwords. Sources the filter has already validated get a boost. Sources from the same site or video, and near-duplicate wording, are penalized so each persona sees a range of views. The search query combines the persona's focus, the category, the comparison group, and the ad's own claims, benefits and offer. Excerpts are still contiguous original text, now starting on a sentence boundary.
 
 ## Frontend structure
+
+- js/landing.js: public landing page (user count, Google sign-in) and the sign-in page
+- css/live.css: the whole UI on the design tokens in css/tokens.css (editorial style: Graphite type, Ember accents, 0px buttons, 6px 0 0 feature cards, pill navigation)
+- assets/logo.svg: brand mark (header, sign-in page, favicon)
 
 ### Persona inputs and team routing
 

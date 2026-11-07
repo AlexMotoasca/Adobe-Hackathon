@@ -6,6 +6,7 @@ import { createAnalysis, listAnalyses, getAnalysis, summary, saveImage, saveRevi
 import { assertWav, transcribe, polishTranscript, MAX_AUDIO_BYTES } from './transcription';
 import { GroqModel } from './ai';
 import { translateUi, i18nRequestSchema } from './i18n';
+import { startGoogleLogin, finishGoogleLogin, currentUser, requireUser, logout, userCount, googleConfigured } from './auth';
 import { saveVideoStream, videoResponse, VIDEO_TYPES } from './media';
 import { saveVideoMeta } from './repository';
 import { ingestImage, ingestReviews, MAX_IMAGE_BYTES, MAX_REVIEW_BYTES } from './ingestion';
@@ -47,6 +48,19 @@ async function dispatch(request: Request, path: string[]) {
     catch { throw new AppError('DATABASE_UNAVAILABLE', 'Database is unavailable or migrations are missing.', 503); }
     return Response.json({ status: 'ok', database: 'connected', providerConfigured: !!process.env.GROQ_API_KEY });
   }
+  const route = path.join('/');
+  // Public: sign-in flow and the landing page's user count.
+  if (route === 'auth/google' && method === 'GET') return startGoogleLogin(request);
+  if (route === 'auth/google/callback' && method === 'GET') return finishGoogleLogin(request);
+  if (route === 'auth/logout' && method === 'POST') return logout(request);
+  if (route === 'auth/me' && method === 'GET') {
+    const user = await currentUser(request);
+    if (!user) throw new AppError('UNAUTHENTICATED', 'Not signed in.', 401);
+    return Response.json({ user });
+  }
+  if (route === 'stats' && method === 'GET') return Response.json({ users: await userCount(), googleConfigured: googleConfigured() });
+  // Everything below requires a signed-in user.
+  const user = await requireUser(request);
   if (path.join('/') === 'i18n' && method === 'POST') {
     // UI label translations for a report language (cached on disk after the first request).
     if (!request.headers.get('content-type')?.startsWith('application/json')) throw new AppError('INVALID_REQUEST', 'Use application/json.');
@@ -62,21 +76,22 @@ async function dispatch(request: Request, path: string[]) {
       let input: unknown;
       try { input = JSON.parse((await readBounded(request, 24000)).toString('utf8')); }
       catch (e) { if (e instanceof AppError) throw e; throw new AppError('INVALID_JSON', 'Malformed JSON request.'); }
-      return Response.json(await createAnalysis(campaignSchema.parse(input)), { status: 201 });
+      return Response.json(await createAnalysis(campaignSchema.parse(input), user.id), { status: 201 });
     }
     if (method === 'GET') {
       const search = new URL(request.url).searchParams;
       const limit = z.coerce.number().int().min(1).max(100).parse(search.get('limit') ?? 20);
       const offset = z.coerce.number().int().min(0).max(100000).parse(search.get('offset') ?? 0);
-      return Response.json({ items: await listAnalyses(limit, offset), limit, offset });
+      return Response.json({ items: await listAnalyses(limit, offset, user.id), limit, offset });
     }
   }
   const id = z.string().uuid().parse(path[1]);
+  await getAnalysis(id, user.id); // ownership check for every analysis route
   if (path.length === 2 && method === 'GET') return Response.json(summary(await getAnalysis(id)));
   if (path.length !== 3) throw new AppError('NOT_FOUND', 'Endpoint not found.', 404);
   if (path[2] === 'rerun' && method === 'POST') {
     if (!process.env.GROQ_API_KEY) throw new AppError('PROVIDER_NOT_CONFIGURED', 'Set GROQ_API_KEY before rerunning analysis.', 503);
-    return Response.json(await rerunAnalysis(id), { status: 202 });
+    return Response.json(await rerunAnalysis(id, user.id), { status: 202 });
   }
   if (path[2] === 'image' && method === 'POST') {
     const file = await upload(request, MAX_IMAGE_BYTES);

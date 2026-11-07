@@ -91,3 +91,16 @@ const roB = translator({'[Exact product model] — [verified local price].':'[Ex
 const bHtml = reportView({...report, synthesis:{...report.synthesis, recommendations:[{problem:'p', priority:'low', proposedChange:'c', exampleCopy:'[Exact product model] — [verified local price].', rationale:'r', testingHypothesis:'t', personaIds:['skeptic'], findingIds:[], evidenceIds:[]}]}}, {t: roB});
 assert.match(bHtml, /\[Modelul exact al produsului\] — \[preț local verificat\]/);
 console.log('Placeholder translation checks passed.');
+const {landingView, loginView, googleHref} = await import('../js/landing.js');
+const land = landingView({users: 1234, googleConfigured: true});
+assert.match(land, /1,234/);
+assert.match(land, /marketers have signed up/);
+assert.match(land, /href="\/api\/auth\/google\?next=%2Fdashboard" data-full/);
+assert.match(land, /src="\/assets\/logo.svg"/);
+assert.match(landingView({users: 1}), /marketer has signed up/);
+assert.match(landingView({users: 0, googleConfigured: false}), /GOOGLE_CLIENT_ID/);
+assert.match(landingView({user: {name: 'A'}}), /Open your dashboard/);
+assert.ok(!landingView({authError: '<script>'}).includes('<script>'));
+assert.match(loginView({next: '/analysis/x'}), /next=%2Fanalysis%2Fx/);
+assert.equal(googleHref('/a b'), '/api/auth/google?next=%2Fa%20b');
+console.log('Landing page and sign-in checks passed.');

@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { db } from '../src/db';
 import { handle } from '../src/http';
+import { upsertUser, createSession } from '../src/auth';
 import { claimJob, getAnalysis } from '../src/repository';
 import { executeJob } from '../src/jobs';
 import type { Model } from '../src/ai';
@@ -16,9 +17,13 @@ test('PostgreSQL API lifecycle, job claiming, recovery, failure and durable repo
   process.env.GROQ_API_KEY = 'test-only';
   const pool = db();
   const created: string[] = [];
-  const request = (path: string[], method = 'GET', body?: BodyInit, contentType?: string) => handle(new Request(`http://localhost/api/${path.join('/')}`, { method, body, headers: contentType ? { 'Content-Type': contentType } : undefined }), path);
+  let sessionCookie = '';
+  const request = (path: string[], method = 'GET', body?: BodyInit, contentType?: string) => handle(new Request(`http://localhost/api/${path.join('/')}`, { method, body, headers: { cookie: sessionCookie, ...(contentType ? { 'Content-Type': contentType } : {}) } }), path);
   try {
     await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'));
+    await pool.query(await readFile(new URL('../migrations/002_auth.sql', import.meta.url), 'utf8'));
+    const user = await upsertUser({ sub: 'integration-fixture', email: 'fixture@example.com' });
+    sessionCookie = 'mm_session=' + await createSession(user.id);
     const campaign = { brand: 'Integration fixture', product: 'Bottle', category: 'Home', targetAudience: 'Commuters', objective: 'Awareness', market: 'RO', language: 'en' };
     const create = await request(['analyses'], 'POST', JSON.stringify(campaign), 'application/json');
     assert.equal(create.status, 201);

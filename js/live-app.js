@@ -2,14 +2,22 @@ import {request, create, upload, uploadVideo, uploadAudio, uploadMedia, escape a
 import {reportView} from './live-report.js';
 import {videoToStoryboard, videoToAudio, VIDEO_TYPES} from './video-storyboard.js';
 import {loadTranslator, translator} from './i18n.js';
+import {landingView, loginView, brand} from './landing.js';
 const app = globalThis.document?.querySelector('#app');
-let generation = 0, timer;
+let generation = 0, timer, currentUser = null;
 const IMAGE_TYPES = ['image/png','image/jpeg','image/webp'];
 const fields = [['brand','Brand',200],['product','Product',500],['category','Category',200],['targetAudience','Target audience',2000],['objective','Objective',2000],['market','Market',200],['language','Language',100]];
 export const LANGUAGES = ['English','Romanian','Spanish','French','German','Italian','Portuguese','Dutch','Polish','Hungarian','Czech','Slovak','Bulgarian','Greek','Croatian','Serbian','Slovenian','Ukrainian','Russian','Turkish','Swedish','Danish','Norwegian','Finnish','Estonian','Latvian','Lithuanian','Arabic','Hebrew','Hindi','Bengali','Urdu','Indonesian','Malay','Thai','Vietnamese','Filipino','Chinese (Simplified)','Chinese (Traditional)','Japanese','Korean','Swahili'];
 const languageSelect = () => '<label>Language<select name="language" required>'+LANGUAGES.map(l=>'<option'+(l==='English'?' selected':'')+'>'+e(l)+'</option>').join('')+'</select></label>';
 const fieldInput = ([key,label,max]) => key==='language' ? languageSelect() : '<label>' + label + '<input name="' + key + '" required maxlength="' + max + '"></label>';
-const shell = body => '<header class="live-header"><a href="/dashboard">MindMarket<span> / Ad feedback</span></a><nav><a href="/dashboard">Reviews</a><a class="action" href="/analysis/new">New ad review</a></nav></header><main class="live-main">' + body + '</main>';
+// Signed-in app chrome: wordmark · nav pill · user + sign out.
+const shell = body => {
+  const path = globalThis.location?.pathname || '';
+  const nav = [['/dashboard','Reviews'],['/analysis/new','New review']].map(([href,label])=>'<a href="'+href+'"'+(path===href||(href==='/dashboard'&&path.startsWith('/analysis/')&&path!=='/analysis/new')?' aria-current="page"':'')+'>'+label+'</a>').join('');
+  const u = currentUser;
+  const who = u ? '<span class="user-chip">'+(u.picture?'<img src="'+e(u.picture)+'" alt="" referrerpolicy="no-referrer">':'<span class="initial">'+e((u.name||u.email||'?')[0].toUpperCase())+'</span>')+'<span>'+e(u.name||u.email)+'</span></span><button type="button" class="btn ghost" id="logout">Sign out</button>' : '';
+  return '<header class="site-header"><div class="wrap">'+brand('/dashboard')+'<nav class="nav-pill" aria-label="App">'+nav+'</nav><div class="header-actions">'+who+'</div></div></header><main class="live-main">' + body + '</main>';
+};
 const loading = text => '<p role="status" class="loading">' + e(text) + '</p>';
 const error = err => '<p role="alert" class="error">' + e(err.message) + '</p>';
 const rerunButton = (a, cls='', t=translator()) => ['completed','failed'].includes(a.status) && a.hasImage ? '<button type="button" class="'+cls+'" data-rerun="'+e(a.id)+'" data-label="'+e(t('Rerun'))+'" data-busy="'+e(t('Starting…'))+'">'+e(t('Rerun'))+'</button>' : '';
@@ -51,7 +59,9 @@ globalThis.document?.addEventListener('click', event => {
     else document.getElementById('ad-player')?.scrollIntoView({behavior:'smooth', block:'start'});
     return;
   }
+  if (event.target.closest('#logout')) { event.preventDefault(); signOut(); return; }
   const a = event.target.closest('a');
+  if (a?.hasAttribute('data-full') || a?.getAttribute('href')?.startsWith('/api/')) return; // real navigation (Google sign-in)
   if (a?.getAttribute('href')?.startsWith('#')) {
     const target = document.getElementById(a.getAttribute('href').slice(1));
     if (target) { event.preventDefault(); for(let node=target;node;node=node.parentElement) if(node.tagName==='DETAILS') node.open=true; target.scrollIntoView({behavior:'auto',block:'start'}); }
@@ -61,15 +71,47 @@ globalThis.document?.addEventListener('click', event => {
 });
 globalThis.window?.addEventListener('popstate', render);
 
+async function signOut() {
+  try { await request('/auth/logout', {method:'POST'}); } catch {}
+  currentUser = null; go('/');
+}
+async function publicStats() {
+  try { return await request('/stats'); } catch { return {users: null, googleConfigured: true}; }
+}
+async function whoAmI() {
+  try { return (await request('/auth/me')).user; } catch (err) { if (err.status === 401) return null; throw err; }
+}
+
 async function render() {
   const token = ++generation; clearTimeout(timer);
-  const path = location.pathname;
+  const path = location.pathname, params = new URLSearchParams(location.search);
+  // Public pages: landing (shows the signed-up user count) and sign-in.
+  if (path === '/' || path === '/login') {
+    const [stats, user] = await Promise.all([publicStats(), whoAmI().catch(() => null)]);
+    if (token !== generation) return;
+    currentUser = user;
+    if (path === '/login' && user) { go(params.get('next') || '/dashboard'); return; }
+    app.innerHTML = path === '/' ? landingView({users: stats.users, googleConfigured: stats.googleConfigured, user, authError: params.get('auth_error') || ''})
+      : loginView({next: params.get('next') || '/dashboard', googleConfigured: stats.googleConfigured, authError: params.get('auth_error') || ''});
+    document.title = 'MindMarket — AI feedback for your ads';
+    return;
+  }
+  // Everything else needs a signed-in user.
+  if (!currentUser) {
+    app.innerHTML = '<main class="live-main">' + loading('Checking your session…') + '</main>';
+    try { currentUser = await whoAmI(); } catch (err) { app.innerHTML = '<main class="live-main">' + error(err) + '</main>'; return; }
+    if (token !== generation) return;
+    if (!currentUser) { history.replaceState({}, '', '/login?next=' + encodeURIComponent(path + location.search)); render(); return; }
+  }
   if (path !== '/dashboard' || !app.querySelector('.dash')) app.innerHTML = shell(loading('Loading…'));
   try {
     if (path === '/analysis/new') { newAnalysis(); return; }
     if (path.startsWith('/analysis/')) { await detail(path.split('/')[2], token); return; }
     await dashboard(token);
-  } catch(err) { if(token === generation) { app.innerHTML = shell(error(err) + '<button id="retry">Try again</button>'); document.querySelector('#retry').onclick=render; } }
+  } catch(err) {
+    if (err.status === 401) { currentUser = null; history.replaceState({}, '', '/login?next=' + encodeURIComponent(path)); render(); return; }
+    if(token === generation) { app.innerHTML = shell(error(err) + '<button id="retry">Try again</button>'); document.querySelector('#retry').onclick=render; }
+  }
 }
 
 export function dashboardView(items, {offset=0, filter='all'}={}) {

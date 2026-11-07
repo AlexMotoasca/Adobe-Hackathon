@@ -44,11 +44,11 @@ test('video reports carry the creative and a frames-only limitation; prompts foc
   assert.equal(persona.data.format.format, 'video ad');
 });
 
-test('video uploads require frame timestamps before any database access', async () => {
+test('anonymous video uploads are rejected before any database access', async () => {
   const form = new FormData(); form.set('file', new Blob(['x']), 'storyboard.jpg');
   const id = '00000000-0000-4000-8000-000000000000';
   const response = await handle(new Request(`http://localhost/api/analyses/${id}/video?duration=10`, { method: 'POST', body: form }), ['analyses', id, 'video']);
-  assert.equal(response.status, 400);
+  assert.equal(response.status, 401);
 });
 
 import { transcribe, transcriptForPrompt } from '../src/transcription';

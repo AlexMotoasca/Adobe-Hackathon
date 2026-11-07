@@ -9,28 +9,31 @@ export interface AnalysisRow {
   review_stats: { received: number; accepted: number; duplicates: number };
   outputs: Record<string, unknown>; report: AnalysisReport | null;
   error: { code: string; message: string } | null;
-  created_at: Date; updated_at: Date; lease_token: string | null;
+  created_at: Date; updated_at: Date; lease_token: string | null; user_id?: string | null;
 }
 
 export function summary(row: AnalysisRow) {
   return { id: row.id, campaign: row.campaign, status: row.status, stage: row.stage,
     hasImage: !!row.image_type, creative: row.campaign.creative ?? { kind: 'image' }, imageUrl: row.image_type ? `/api/analyses/${row.id}/image` : null,
     reviewStats: row.review_stats, error: row.error, createdAt: row.created_at, updatedAt: row.updated_at,
-    completedPersonas: Array.isArray(row.outputs?.personas) ? row.outputs.personas.length : 0 };
+    completedPersonas: Array.isArray(row.outputs?.personas) ? row.outputs.personas.length : 0, shared: row.user_id === null };
 }
-export async function getAnalysis(id: string): Promise<AnalysisRow> {
+// With userId, only the owner's analyses (or legacy analyses created before sign-in) are visible;
+// anything else is reported as not found so ids of other users' work are not disclosed.
+export async function getAnalysis(id: string, userId?: string): Promise<AnalysisRow> {
   const result = await db().query<AnalysisRow>('SELECT * FROM analyses WHERE id=$1', [id]);
-  if (!result.rows[0]) throw new AppError('NOT_FOUND', 'Analysis not found.', 404);
-  return result.rows[0];
+  const row = result.rows[0];
+  if (!row || (userId && row.user_id && row.user_id !== userId)) throw new AppError('NOT_FOUND', 'Analysis not found.', 404);
+  return row;
 }
-export async function createAnalysis(campaign: Campaign) {
-  const result = await db().query<AnalysisRow>('INSERT INTO analyses(id,campaign) VALUES($1,$2::jsonb) RETURNING *', [randomUUID(), JSON.stringify(campaign)]);
+export async function createAnalysis(campaign: Campaign, userId?: string) {
+  const result = await db().query<AnalysisRow>('INSERT INTO analyses(id,campaign,user_id) VALUES($1,$2::jsonb,$3) RETURNING *', [randomUUID(), JSON.stringify(campaign), userId ?? null]);
   return summary(result.rows[0]);
 }
-export async function listAnalyses(limit: number, offset: number) {
-  const result = await db().query<AnalysisRow>(`SELECT id,campaign,status,stage,image_type,review_stats,error,created_at,updated_at,
+export async function listAnalyses(limit: number, offset: number, userId?: string) {
+  const result = await db().query<AnalysisRow>(`SELECT id,campaign,status,stage,image_type,review_stats,error,created_at,updated_at,user_id,
     jsonb_build_object('personas', coalesce(outputs->'personas','[]'::jsonb)) AS outputs
-    FROM analyses ORDER BY created_at DESC,id LIMIT $1 OFFSET $2`, [limit, offset]);
+    FROM analyses WHERE ($3::uuid IS NULL OR user_id=$3 OR user_id IS NULL) ORDER BY created_at DESC,id LIMIT $1 OFFSET $2`, [limit, offset, userId ?? null]);
   return result.rows.map(summary);
 }
 export async function saveImage(id: string, data: Buffer, type: string, creative: Creative = { kind: 'image' }) {
@@ -67,14 +70,15 @@ export async function enqueue(id: string) {
   }
 }
 
-export async function rerunAnalysis(id: string) {
+export async function rerunAnalysis(id: string, userId?: string) {
   const { copyVideo } = await import('./media');
   // Copy only inputs, preserving the original report and starting fresh research.
   const result = await db().query<AnalysisRow>(`INSERT INTO analyses
-    (id,campaign,image,image_type,reviews,review_stats,status,stage)
-    SELECT $2,campaign,image,image_type,reviews,review_stats,'queued','queued'
+    (id,campaign,image,image_type,reviews,review_stats,status,stage,user_id)
+    SELECT $2,campaign,image,image_type,reviews,review_stats,'queued','queued',$3
     FROM analyses WHERE id=$1 AND status IN ('completed','failed') AND image IS NOT NULL
-    RETURNING *`, [id, randomUUID()]);
+      AND ($3::uuid IS NULL OR user_id=$3 OR user_id IS NULL)
+    RETURNING *`, [id, randomUUID(), userId ?? null]);
   if (!result.rows[0]) {
     await getAnalysis(id);
     throw new AppError('CONFLICT', 'Only completed or failed analyses with a saved creative can be rerun.', 409);

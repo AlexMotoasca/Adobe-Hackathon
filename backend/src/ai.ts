@@ -80,6 +80,19 @@ export class GroqModel implements Model {
           const bucket = /tokens per day|\bTPD\b/i.test(detail) ? 'daily token' : /requests per day|\bRPD\b/i.test(detail) ? 'daily request' : /tokens per minute|\bTPM\b/i.test(detail) ? 'per-minute token' : /requests per minute|\bRPM\b/i.test(detail) ? 'per-minute request' : 'provider';
           throw new AppError('PROVIDER_RATE_LIMIT', `Groq (${this.keyName}, ${model}) reached its ${bucket} limit (HTTP 429). Saved results can be resumed after the limit resets. No alternate key was used.`, 503);
         }
+        if (response.status === 400) {
+          // In JSON mode Groq answers 400 "json_validate_failed" when the model produced invalid JSON:
+          // that is a bad generation, not a bad request, so it is retried like malformed output.
+          const body = await response.json().catch(() => null);
+          if (body?.error?.code === 'json_validate_failed' && attempt < 2) {
+            console.warn(`Groq output rejected: json_validate_failed; attempt ${attempt + 1}/3.`);
+            correction = '\nThe previous attempt was not valid JSON. Return one complete, valid JSON object only, with no commentary or markdown.';
+            continue;
+          }
+          throw new AppError('PROVIDER_ERROR', body?.error?.code === 'json_validate_failed'
+            ? `Groq (${model}) could not produce valid JSON after bounded retries. Retry the analysis to reuse saved stages.`
+            : 'Groq returned HTTP 400. Check credentials, model availability and quota.', 502);
+        }
         await response.body?.cancel();
         throw new AppError('PROVIDER_ERROR', `Groq returned HTTP ${response.status}. Check credentials, model availability and quota.`, 502);
       }
