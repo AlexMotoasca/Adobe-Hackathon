@@ -14,7 +14,7 @@ const server = http.createServer((req,res)=>{
   }
   let name;
   try{name=decodeURIComponent(url.pathname);}catch{res.writeHead(400);res.end();return;}
-  const allowed = name === '/' || name === '/index.html' || name === '/dashboard' || name === '/analysis/new' || /^\/analysis\/[^/]+$/.test(name) || name === '/login' || name === '/settings';
+  const allowed = name === '/' || name === '/index.html' || name === '/dashboard' || name === '/analysis/new' || /^\/analysis\/[^/]+$/.test(name) || name === '/login' || name === '/settings' || name === '/pricing';
   const file=allowed?path.join(root,'index.html'):path.resolve(root,'.'+name);
   const relative=path.relative(root,file);
   if(!allowed && (relative.startsWith('..') || !/^(js|css|assets)[\\/]/.test(relative))){res.writeHead(404);res.end();return;}

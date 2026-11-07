@@ -2,7 +2,7 @@ import {request, create, upload, uploadVideo, uploadAudio, uploadMedia, escape a
 import {reportView} from './live-report.js';
 import {videoToStoryboard, videoToAudio, VIDEO_TYPES} from './video-storyboard.js';
 import {loadTranslator, translator} from './i18n.js';
-import {landingView, loginView, brand} from './landing.js';
+import {landingView, loginView, pricingView, brand} from './landing.js';
 const app = globalThis.document?.querySelector('#app');
 let generation = 0, timer, currentUser = null;
 const IMAGE_TYPES = ['image/png','image/jpeg','image/webp'];
@@ -13,30 +13,19 @@ const fieldInput = ([key,label,max]) => key==='language' ? languageSelect() : '<
 // Signed-in app chrome: wordmark · nav pill · user + sign out.
 const shell = body => {
   const path = globalThis.location?.pathname || '';
-  const nav = [['/dashboard','Reviews'],['/analysis/new','New review']].map(([href,label])=>'<a href="'+href+'"'+(path===href||(href==='/dashboard'&&path.startsWith('/analysis/')&&path!=='/analysis/new')?' aria-current="page"':'')+'>'+label+'</a>').join('');
+  const nav = [['/dashboard','Reviews'],['/analysis/new','New review'],['/pricing','Plans']].map(([href,label])=>'<a href="'+href+'"'+(path===href||(href==='/dashboard'&&path.startsWith('/analysis/')&&path!=='/analysis/new')?' aria-current="page"':'')+'>'+label+'</a>').join('');
   const u = currentUser;
   const who = u ? '<span class="user-chip">'+(u.picture?'<img src="'+e(u.picture)+'" alt="" referrerpolicy="no-referrer">':'<span class="initial">'+e((u.name||u.email||'?')[0].toUpperCase())+'</span>')+'<span>'+e(u.name||u.email)+'</span></span><button type="button" class="btn ghost" id="logout">Sign out</button>' : '';
   return '<header class="site-header"><div class="wrap">'+brand('/dashboard')+'<nav class="nav-pill" aria-label="App">'+nav+'</nav><div class="header-actions">'+who+'</div></div></header><main class="live-main">' + body + '</main>';
 };
 const loading = text => '<p role="status" class="loading">' + e(text) + '</p>';
 const error = err => '<p role="alert" class="error">' + e(err.message) + '</p>';
-const rerunButton = (a, cls='', t=translator()) => ['completed','failed'].includes(a.status) && a.hasImage ? '<button type="button" class="'+cls+'" data-rerun="'+e(a.id)+'" data-label="'+e(t('Rerun'))+'" data-busy="'+e(t('Starting…'))+'">'+e(t('Rerun'))+'</button>' : '';
 const STATUS = {completed:['Ready','ok'],running:['Analysing','run'],queued:['Queued','run'],failed:['Failed','bad'],draft:['Draft','idle']};
 const mediaLabel = (a, t=translator()) => a.creative?.kind==='video' ? t('▶ Video')+(a.creative.durationSeconds?' · '+Math.round(a.creative.durationSeconds)+'s':'') : t('Image');
 function ago(date) {
   const s = (Date.now() - new Date(date)) / 1000;
   if (s < 60) return 'just now';
   for (const [unit, size] of [['day',86400],['hour',3600],['min',60]]) if (s >= size) { const n=Math.floor(s/size); return n+' '+unit+(n>1&&unit!=='min'?'s':'')+' ago'; }
-}
-function bindReruns() {
-  document.querySelectorAll('[data-rerun]').forEach(button => {
-    button.onclick = async event => {
-      event.preventDefault(); event.stopPropagation();
-      button.disabled = true; button.textContent = button.dataset.busy || 'Starting…';
-      try { const a = await request('/analyses/'+encodeURIComponent(button.dataset.rerun)+'/rerun',{method:'POST'}); go('/analysis/'+a.id); }
-      catch(err) { button.textContent = button.dataset.label || 'Rerun'; button.disabled = false; button.title = err.message; alert(err.message); }
-    };
-  });
 }
 const STEPS=[['ad_interpretation','Watching your ad and searching the web'],['category_research','Collecting customer opinions'],['consumer_insights','Finding what buyers care about'],['personas','Getting feedback from 5 audience profiles'],['evidence_validation','Checking feedback against evidence'],['synthesis','Writing your recommendations']];
 function progressSteps(a, t=translator()) {
@@ -86,14 +75,17 @@ async function render() {
   const token = ++generation; clearTimeout(timer);
   const path = location.pathname, params = new URLSearchParams(location.search);
   // Public pages: landing (shows the signed-up user count) and sign-in.
-  if (path === '/' || path === '/login') {
+  if (path === '/' || path === '/login' || path === '/pricing') {
     const [stats, user] = await Promise.all([publicStats(), whoAmI().catch(() => null)]);
     if (token !== generation) return;
     currentUser = user;
     if (path === '/login' && user) { go(params.get('next') || '/dashboard'); return; }
     app.innerHTML = path === '/' ? landingView({users: stats.users, googleConfigured: stats.googleConfigured, user, authError: params.get('auth_error') || ''})
+      : path === '/pricing' ? pricingView({user})
       : loginView({next: params.get('next') || '/dashboard', googleConfigured: stats.googleConfigured, authError: params.get('auth_error') || ''});
-    document.title = 'MindMarket — AI feedback for your ads';
+    document.title = path === '/pricing' ? 'Plans — MindMarket' : 'MindMarket — AI feedback for your ads';
+    // Section links such as /#how land on the right part of the page.
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({block: 'start'}); else scrollTo(0, 0);
     return;
   }
   // Everything else needs a signed-in user.
@@ -126,7 +118,7 @@ export function dashboardView(items, {offset=0, filter='all'}={}) {
     return '<article class="dash-card"><a class="dash-thumb" href="/analysis/'+e(a.id)+'" aria-label="Open '+e(a.campaign.product)+'">'+(a.hasImage?'<img loading="lazy" alt="" src="'+e(a.imageUrl)+'">'+'<span class="media-pill">'+e(mediaLabel(a))+'</span>':'<span class="dash-noimg">No ad uploaded yet</span>')+'</a>'
     +'<div class="dash-body"><div class="dash-meta"><span class="status '+tone+'">'+e(label)+'</span><time datetime="'+e(a.updatedAt)+'">'+e(ago(a.updatedAt))+'</time></div><h3><a href="/analysis/'+e(a.id)+'">'+e(a.campaign.product)+'</a></h3><p>'+e(a.campaign.brand)+' · '+e(a.campaign.targetAudience)+'</p>'
     +(['running','queued'].includes(a.status)?'<div class="dash-progress" aria-label="'+a.completedPersonas+' of 5 audience views done"><i style="width:'+Math.max(6,a.completedPersonas/5*100)+'%"></i></div>':'')
-    +'<div class="dash-actions"><a href="/analysis/'+e(a.id)+'">'+action+' →</a>'+rerunButton(a,'ghost')+'</div></div></article>'; };
+    +'<div class="dash-actions"><a href="/analysis/'+e(a.id)+'">'+action+' →</a></div></div></article>'; };
   const grid = shown.length ? '<div class="dash-grid">'+shown.map(card).join('')+'</div>' : '<p class="section-note">Nothing in this view.</p>';
   const pager = '<nav class="pagination">' + (offset ? '<a href="/dashboard?offset=' + Math.max(0,offset-20) + '">← Newer</a>' : '') + (items.length === 20 ? '<a href="/dashboard?offset=' + (offset+20) + '">Older →</a>' : '') + '</nav>';
   return hero + stats + chips + grid + pager;
@@ -140,7 +132,6 @@ async function dashboard(token) {
     app.innerHTML = shell('<div class="dash">'+dashboardView(data.items, {offset, filter:dashFilter})+'</div>');
     document.querySelector('#refresh')?.addEventListener('click', render);
     document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { dashFilter = b.dataset.filter; paint(); });
-    bindReruns();
   };
   paint();
   // Keep in-progress cards live without a manual refresh.
@@ -167,7 +158,6 @@ async function detail(id, token) {
   const [label,tone]=STATUS[a.status]||[a.status,'idle'];
   app.innerHTML=shell('<p class="eyebrow">'+e(a.campaign.brand)+'</p><h1>'+e(a.campaign.product)+'</h1><section class="panel analysis-context"><div role="status"><span class="status '+tone+'">'+e(t(label))+'</span> '+(a.hasImage?'<span class="media-pill inline">'+e(mediaLabel(a,t))+'</span>':'')+'</div><p>'+e(a.campaign.objective)+'</p>'+(a.error?error(a.error):'')+(a.hasImage?'<img class="creative" alt="'+(a.creative?.kind==='video'?'Storyboard of sampled video frames':'Saved ad creative')+'" src="/api'+base+'/image">':'')+transcriptView(a.creative,t)+'</section><div id="detail-body"></div>');
   const body=document.querySelector('#detail-body');
-  if (rerunButton(a)) { body.insertAdjacentHTML('beforebegin','<section class="panel rerun-strip">'+rerunButton(a,'',t)+'<p>'+e(t('Runs a fresh review with the same campaign and ad. Your previous report is kept.'))+'</p></section>'); bindReruns(); }
   if(a.status==='completed') {body.innerHTML=loading(t('Loading feedback…')); const r=await request(base+'/report'); if(token===generation)body.innerHTML=reportView(r,{videoUrl:a.creative?.video?'/api'+base+'/media':null,storyboardUrl:'/api'+base+'/image',t});return;}
   if(a.status==='running'||a.status==='queued') {
     body.innerHTML='<section class="panel" role="status"><h2>'+e(t('Reviewing your ad'))+'</h2>'+progressSteps(a,t)+'<p class="section-note">'+e(t('Updates every few seconds. You can leave this page; results are saved.'))+'</p></section>';
