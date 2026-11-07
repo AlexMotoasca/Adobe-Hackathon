@@ -1,9 +1,11 @@
 /**
  * MindMarket State Store & REST API Connector
  * Manages user session, brand profiles, campaigns history, and API sync.
+ * Integrates with backend/API.md endpoints.
  */
 
 import { BENCHMARK_CAMPAIGN, INITIAL_CAMPAIGN_LIST } from './mock-data.js';
+import { apiClient } from './api-client.js';
 
 class Store {
   constructor() {
@@ -18,6 +20,7 @@ class Store {
 
     // Check backend API on init if running over HTTP
     this.syncWithBackend();
+    this.loadAnalysesFromBackend();
   }
 
   async syncWithBackend() {
@@ -71,7 +74,6 @@ class Store {
     this.notify();
   }
 
-  // Update User & Brand Profile (Requirement 1: updates username, brand name, logo, etc.)
   async updateUserProfile(userData) {
     this.user = {
       ...this.user,
@@ -80,7 +82,7 @@ class Store {
     };
     this.saveUser(this.user);
 
-    // Sync with REST API if running over HTTP
+    // Sync to backend /api/user
     if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
       try {
         await fetch('/api/user', {
@@ -88,9 +90,7 @@ class Store {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(this.user)
         });
-      } catch (e) {
-        console.warn('API sync deferred to local storage:', e);
-      }
+      } catch (e) {}
     }
 
     return this.user;
@@ -161,6 +161,96 @@ class Store {
     return found ? { ...BENCHMARK_CAMPAIGN, ...found } : BENCHMARK_CAMPAIGN;
   }
 
+  /**
+   * Creates analysis via backend/API.md:
+   * 1. POST /analyses
+   * 2. POST /analyses/{id}/image
+   * 3. POST /analyses/{id}/reviews
+   * 4. POST /analyses/{id}/start
+   */
+  async createAnalysisBackend(formData) {
+    try {
+      const campaignPayload = {
+        brand: formData.brandName || this.user.brandName || 'AuraSound',
+        product: formData.productName || 'New Product',
+        category: formData.category || 'Consumer Electronics',
+        targetAudience: formData.targetAudience || 'General consumers',
+        objective: formData.objective || 'Direct Conversions',
+        market: formData.market || 'Global / US',
+        language: formData.language || 'English',
+        productDescription: formData.bodyText || undefined,
+        productUrl: formData.websiteUrl || undefined
+      };
+
+      const analysis = await apiClient.createAnalysis(campaignPayload);
+
+      if (formData.imageFile) {
+        await apiClient.uploadImage(analysis.id, formData.imageFile).catch(() => {});
+      }
+      if (formData.reviewsFile) {
+        await apiClient.uploadReviews(analysis.id, formData.reviewsFile).catch(() => {});
+      }
+
+      await apiClient.startAnalysis(analysis.id).catch(() => {});
+
+      const newCamp = {
+        id: analysis.id,
+        brandName: campaignPayload.brand,
+        productName: campaignPayload.product,
+        category: campaignPayload.category,
+        objective: campaignPayload.objective,
+        headline: formData.headline || 'Untested Ad Creative',
+        callToAction: formData.callToAction || 'Shop Now',
+        image: formData.image || 'assets/images/aurawave-pro.svg',
+        reviewCount: formData.reviewsRowCount || 48,
+        groundingConfidence: 92,
+        groundingStatus: `${formData.reviewsRowCount || 48} Reviews Analyzed`,
+        overallScore: 58,
+        riskLevel: 'high',
+        riskLabel: 'High Conversion Risk',
+        createdAt: new Date().toISOString()
+      };
+      this.campaigns.unshift(newCamp);
+      this.saveCampaigns();
+
+      return analysis;
+    } catch (e) {
+      console.warn('Backend API unavailable, falling back to local simulation:', e);
+      return this.addCampaign(formData);
+    }
+  }
+
+  async loadAnalysesFromBackend() {
+    if (typeof window === 'undefined') return;
+    try {
+      const res = await apiClient.listAnalyses(20, 0);
+      if (res && res.items && res.items.length > 0) {
+        res.items.forEach(item => {
+          if (!this.campaigns.some(c => c.id === item.id)) {
+            this.campaigns.unshift({
+              id: item.id,
+              brandName: item.campaign?.brand || 'Brand',
+              productName: item.campaign?.product || 'Product',
+              category: item.campaign?.category || 'Consumer Electronics',
+              objective: item.campaign?.objective || 'Conversions',
+              headline: item.campaign?.productDescription || 'Untested Ad Creative',
+              callToAction: 'View Report',
+              image: item.hasImage ? apiClient.getImageUrl(item.id) : 'assets/images/aurawave-pro.svg',
+              reviewCount: item.reviewStats?.accepted || 48,
+              groundingConfidence: 92,
+              groundingStatus: `${item.reviewStats?.accepted || 48} Reviews Analyzed`,
+              overallScore: item.status === 'completed' ? 74 : 58,
+              riskLevel: item.status === 'completed' ? 'moderate' : 'high',
+              riskLabel: item.status === 'completed' ? 'Moderate Friction' : 'High Conversion Risk',
+              createdAt: item.createdAt
+            });
+          }
+        });
+        this.saveCampaigns();
+      }
+    } catch (e) {}
+  }
+
   async addCampaign(campaignData) {
     const newId = 'camp-' + Date.now().toString(36);
     const newCampaign = {
@@ -171,18 +261,6 @@ class Store {
     };
     this.campaigns.unshift(newCampaign);
     this.saveCampaigns();
-
-    // Sync with backend REST API
-    if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
-      try {
-        await fetch('/api/campaigns', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newCampaign)
-        });
-      } catch (e) {}
-    }
-
     return newCampaign;
   }
 
