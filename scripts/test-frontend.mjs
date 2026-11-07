@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {request, escape, create, upload} from '../js/live-api.js';
+assert.equal(escape('<script>"&'), '&lt;script&gt;&quot;&amp;');
+let calls=[];
+globalThis.fetch=async (url,opts)=>{calls.push({url,opts});return new Response(JSON.stringify({id:'saved-id'}),{status:201,headers:{'Content-Type':'application/json'}});};
+await create({brand:'Test'});
+assert.equal(calls[0].url,'/api/analyses');
+assert.equal(JSON.parse(calls[0].opts.body).brand,'Test');
+await upload('saved-id','reviews',new Blob(['text\nexample']));
+assert.equal(calls[1].url,'/api/analyses/saved-id/reviews');
+assert.ok(calls[1].opts.body instanceof FormData);
+globalThis.fetch=async()=>new Response(JSON.stringify({error:{message:'Database unavailable'}}),{status:503});
+await assert.rejects(()=>request('/analyses'),/Database unavailable/);
+globalThis.fetch=async()=>new Response('invalid',{status:200});
+await assert.rejects(()=>request('/analyses'),/invalid response/);
+console.log('Frontend request, upload, escaping, and error checks passed.');

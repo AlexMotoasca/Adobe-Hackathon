@@ -1,8 +1,4 @@
 @echo off
 echo Starting MindMarket Server...
-if exist "node.cmd" (
-  call node.cmd server.js
-) else (
-  node server.js
-)
-pause
+call "%~dp0node.cmd" "%~dp0server.js" %*
+exit /b %errorlevel%
