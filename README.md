@@ -34,6 +34,24 @@ Reports show an evidence summary at the top (retained sources, sources supplied 
 API references: [Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search), [YouTube search](https://developers.google.com/youtube/v3/docs/search/list), [YouTube comments](https://developers.google.com/youtube/v3/docs/commentThreads/list).
 
 ## Frontend structure
+
+### Persona inputs and team routing
+
+New persona calls receive at most six source excerpts of 900 characters each (5,400 evidence-text characters total), selected by their specific priorities. Excerpts are contiguous original text, never generated quotations. Full sources remain in reports and evidence validation. Cached personas retain their original source IDs when resumed.
+
+Default `GROQ_PERSONA_ROUTING=single` preserves sequential execution on the existing key. For an authorized team quota arrangement, configure these server-only values in `backend/.env.local`:
+
+```env
+GROQ_PERSONA_ROUTING=team
+GROQ_API_KEY=your_existing_key
+GROQ_TEAM_2_API_KEY=second_team_key
+GROQ_TEAM_3_API_KEY=third_team_key
+```
+
+Fixed assignments run concurrently: key 1 handles skeptic; key 2 handles impulsive then bargain; key 3 handles quality then rational. At most three persona requests run simultaneously, with one active request per assignment. Research filtering and evidence-validation batches use fixed round-robin assignments across the three keys (batches 1/4/7 on key 1, 2/5 on key 2, 3/6 on key 3). Batches remain sequential to limit bursts. Research filtering uses GROQ_RESEARCH_MODEL on each key; validation uses each assigned persona model. Planning, image interpretation, consumer insights and final synthesis remain on the main key. Retrying a saved analysis preserves prior research; use Rerun analysis for fresh collection with the new assignments. Optional `GROQ_TEAM_1_MODEL`, `GROQ_TEAM_2_MODEL`, and `GROQ_TEAM_3_MODEL` override persona models; otherwise all use `GROQ_TEXT_MODEL`. Team routing requires all three keys and rejects duplicate key values. Separate keys do not establish separate organization quotas or authorization to combine quotas.
+
+Requests retry on their assigned key only. They never switch keys after throttling; long provider cooldowns fail with a resumable error. Successful persona checkpoints are saved serially, and failed runs wait for in-flight assignments to settle before reporting failure. Restart the worker after changing configuration. No speedup is claimed until measured with the configured accounts.
+
 - js/live-app.js: navigation, dashboard, campaign creation and execution
 - js/live-api.js: requests, uploads and error handling
 - js/live-report.js: backend report rendering

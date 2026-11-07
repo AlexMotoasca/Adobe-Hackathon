@@ -14,6 +14,20 @@ export function retrieve(reviews: Review[], query: string, limit = 12): Review[]
   })).sort((a, b) => b.score - a.score || a.index - b.index).slice(0, limit).map(item => item.review);
 }
 
+export function compactEvidence(reviews: Review[], query: string): Review[] {
+  const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])];
+  return retrieve(reviews, query, 6).map(review => {
+    let bestStart = 0, bestScore = -1;
+    for (let start = 0; start < review.text.length; start += 300) {
+      const window = review.text.slice(start, start + 900).toLowerCase();
+      const score = words.filter(word => window.includes(word)).length;
+      if (score > bestScore) { bestScore = score; bestStart = start; }
+    }
+    // One contiguous original excerpt: no generated summaries or stitched quotations.
+    return { ...review, text: review.text.slice(bestStart, bestStart + 900) };
+  });
+}
+
 export function validateAssessments(assessments: Assessment[], personas: PersonaResult[], reviews: Review[]): Assessment[] {
   const findings = personas.flatMap(p => p.objections);
   const byId = new Map(reviews.map(r => [r.id, r]));

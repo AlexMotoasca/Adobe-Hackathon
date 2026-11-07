@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { campaignSchema } from './contracts';
 import { AppError } from './errors';
 import { db } from './db';
-import { createAnalysis, listAnalyses, getAnalysis, summary, saveImage, saveReviews, enqueue } from './repository';
+import { createAnalysis, listAnalyses, getAnalysis, summary, saveImage, saveReviews, enqueue, rerunAnalysis } from './repository';
 import { ingestImage, ingestReviews, MAX_IMAGE_BYTES, MAX_REVIEW_BYTES } from './ingestion';
 
 export async function readBounded(request: Request, limit: number): Promise<Buffer> {
@@ -61,6 +61,10 @@ async function dispatch(request: Request, path: string[]) {
   const id = z.string().uuid().parse(path[1]);
   if (path.length === 2 && method === 'GET') return Response.json(summary(await getAnalysis(id)));
   if (path.length !== 3) throw new AppError('NOT_FOUND', 'Endpoint not found.', 404);
+  if (path[2] === 'rerun' && method === 'POST') {
+    if (!process.env.GROQ_API_KEY) throw new AppError('PROVIDER_NOT_CONFIGURED', 'Set GROQ_API_KEY before rerunning analysis.', 503);
+    return Response.json(await rerunAnalysis(id), { status: 202 });
+  }
   if (path[2] === 'image' && method === 'POST') {
     const file = await upload(request, MAX_IMAGE_BYTES);
     const image = await ingestImage(file.bytes);

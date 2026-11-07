@@ -136,6 +136,8 @@ if (!start.ok) throw new Error((await start.json()).error.message);
 ```
 # Category research extension
 
+`POST /api/analyses/:id/rerun` creates and queues a new analysis from a completed or failed analysis's campaign, creative and existing optional evidence. It returns the new analysis summary with HTTP 202. The original report is preserved; research and all evaluation checkpoints start fresh. Active analyses or missing creatives return HTTP 409. The frontend provides this action on dashboard rows and saved-analysis pages.
+
 The worker now emits `category_research` between `ad_interpretation` and `consumer_insights`. Starting an analysis automatically collects evidence from configured Tavily and YouTube providers; review uploads are optional.
 
 Completed reports optionally include `research` (older reports remain compatible): `plan` (category, comparisonGroup, queries), `fetchedAt`, `model`, `providers` (name, status, count before deduplication/filtering), `warnings`, `reviews` (retained evidence), `criteria`, and `competitors`. Criteria and competitor observations cite source IDs. Live evidence is also included in the report's existing `sources` array. Provider states are `ok`, `partial`, `unavailable`, or `not_configured`; `ok` means requests succeeded, not that relevant evidence was found.

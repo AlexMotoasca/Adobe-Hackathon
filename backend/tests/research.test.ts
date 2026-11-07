@@ -64,6 +64,21 @@ test('provider outages return no fabricated evidence', async () => {
   assert.ok(result.providers.every(p => p.status === 'unavailable'));
   assert.equal(result.reviews.length, 0);
 });
+
+test('research batches have fixed assignments and do not switch keys on failure', async () => {
+  const calls = [0, 0, 0];
+  const models: Model[] = calls.map((_, i) => ({ textModel: `test-${i}`, visionModel: 'test', async generate<T>(schema: z.ZodType<T>, _instruction: string, data: any) {
+    calls[i]++;
+    if (i === 1) throw new Error('quota');
+    return schema.parse({ relevantIds: data.sources.map((r: any) => r.id), criteria: [], competitors: [] });
+  } }));
+  const result = await researchCategory(campaign, model(), { tavilyKey: 'test', youtubeKey: '', models,
+    fetcher: async () => Response.json({ results: Array.from({ length: 24 }, (_, i) => ({ url: `https://example.com/${i}`, content: `Buyer experience ${i}` })) }),
+  });
+  assert.deepEqual(calls, [2, 1, 1]);
+  assert.equal(result.reviews.length, 18);
+  assert.match(result.warnings.join(' '), /batch 2 \(assignment 2\)/);
+});
 test('a failed filtering batch preserves evidence from successful batches', async () => {
   let batches = 0;
   const partialModel: Model = { textModel: 'test', visionModel: 'test', async generate<T>(schema: z.ZodType<T>, _instruction: string, data: any) {

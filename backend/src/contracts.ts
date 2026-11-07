@@ -30,8 +30,8 @@ export const PERSONAS = {
   skeptic: 'Credibility, unsupported promises, proof, purchase risk and transparency',
   impulsive: 'Visual impact, emotion, hook, simplicity and CTA clarity',
   bargain: 'Price, value, discounts, extra costs and promotion conditions',
-  quality: 'Materials, durability, performance, differentiation and proof of quality',
-  rational: 'Practical need, usefulness, specifications, alternatives and purchase risks',
+  quality: 'How the ad communicates quality, differentiation and credible proof of its advertised benefit',
+  rational: 'Clarity of the advertised benefit, audience relevance and the next action',
 } as const;
 export const personaKeySchema = z.enum(['skeptic', 'impulsive', 'bargain', 'quality', 'rational']);
 export const findingSchema = z.object({ statement: text, evidenceIds: ids });
@@ -51,6 +51,22 @@ export const synthesisSchema = z.object({
     personaIds: z.array(personaKeySchema).min(1).max(5), findingIds: ids.min(1),
     rationale: text, proposedChange: text, exampleCopy: text, testingHypothesis: text,
   })).max(10), limitations: texts,
+});
+// Generation-only limits: older saved reports remain readable via the original schemas.
+const brief = z.string().trim().min(1).max(240);
+const briefList = z.array(brief).max(2);
+export const conciseInsightsSchema = insightsSchema.extend({ themes: z.array(insightsSchema.shape.themes.element.extend({ theme: z.string().trim().min(1).max(100) })).max(5) });
+export const concisePersonaSchema = personaSchema.extend({
+  firstImpression: brief, strengths: briefList,
+  objections: z.array(findingSchema.extend({ statement: brief })).max(3),
+  missingInformation: briefList, claimsRequiringVerification: briefList,
+  recommendations: briefList, testingQuestions: briefList,
+});
+export const conciseSynthesisSchema = synthesisSchema.extend({
+  executiveSummary: brief, strengths: briefList,
+  recommendations: z.array(synthesisSchema.shape.recommendations.element.extend({
+    problem: brief, rationale: brief, proposedChange: brief, exampleCopy: brief, testingHypothesis: brief,
+  })).max(3), limitations: briefList,
 });
 export type Campaign = z.infer<typeof campaignSchema>;
 export type Review = z.infer<typeof reviewSchema>;

@@ -105,6 +105,33 @@ test('stream limits apply without Content-Length', async () => {
   await assert.rejects(readBounded(request, 4), /limit/);
 });
 
+test('three persona lanes overlap and checkpoint all results in stable order', async () => {
+  const input = { campaign, image: Buffer.from('test'), reviews: [] };
+  let checkpoint: Record<string, any> = {};
+  await runPipeline(input, fakeModel(), async (_stage, outputs) => { checkpoint = structuredClone(outputs); });
+  delete checkpoint.personas; delete checkpoint.assessments; delete checkpoint.assessmentBatches;
+  let active = 0, peak = 0;
+  const counts: number[] = [];
+  const concurrent: Model = { textModel: 'test', visionModel: 'test', async generate<T>(schema: z.ZodType<T>, instruction: string) {
+    if (instruction.startsWith('Simulate')) {
+      active++; peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 5)); active--;
+      return schema.parse({ ...persona, objections: [] });
+    }
+    return schema.parse({ executiveSummary: 'Test', strengths: [], recommendations: [], limitations: [] });
+  } };
+  const report = await runPipeline(input, concurrent, async (stage, outputs) => {
+    if (stage === 'personas' && Array.isArray(outputs.personas)) {
+      await new Promise(resolve => setTimeout(resolve, 2)); counts.push(outputs.personas.length);
+    }
+  }, checkpoint, concurrent, [
+    { model: concurrent, personas: ['skeptic'] }, { model: concurrent, personas: ['impulsive', 'bargain'] }, { model: concurrent, personas: ['quality', 'rational'] },
+  ]);
+  assert.equal(peak, 3);
+  assert.deepEqual(counts, [1, 2, 3, 4, 5]);
+  assert.deepEqual(report.personas.map(p => p.persona), ['skeptic', 'impulsive', 'bargain', 'quality', 'rational']);
+});
+
 test('evidence validation batches resume without repeating successful checks', async () => {
   let checkpoint: Record<string, any> = {};
   const input = { campaign, image: Buffer.from('test'), reviews: [] };

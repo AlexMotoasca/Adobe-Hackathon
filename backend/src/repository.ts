@@ -53,6 +53,20 @@ export async function enqueue(id: string) {
   }
 }
 
+export async function rerunAnalysis(id: string) {
+  // Copy only inputs, preserving the original report and starting fresh research.
+  const result = await db().query<AnalysisRow>(`INSERT INTO analyses
+    (id,campaign,image,image_type,reviews,review_stats,status,stage)
+    SELECT $2,campaign,image,image_type,reviews,review_stats,'queued','queued'
+    FROM analyses WHERE id=$1 AND status IN ('completed','failed') AND image IS NOT NULL
+    RETURNING *`, [id, randomUUID()]);
+  if (!result.rows[0]) {
+    await getAnalysis(id);
+    throw new AppError('CONFLICT', 'Only completed or failed analyses with a saved creative can be rerun.', 409);
+  }
+  return summary(result.rows[0]);
+}
+
 export async function claimJob(): Promise<AnalysisRow | undefined> {
   // Expired workers cannot save outputs after another worker claims their job (token fencing).
   const result = await db().query<AnalysisRow>(`UPDATE analyses SET status='running',stage='ad_interpretation',

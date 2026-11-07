@@ -6,9 +6,25 @@ const fields = [['brand','Brand',200],['product','Product',500],['category','Cat
 const shell = body => '<header class="live-header"><a href="/dashboard">MindMarket<span> / Consumer intelligence</span></a><nav><a href="/dashboard">Analyses</a><a class="action" href="/analysis/new">New analysis</a></nav></header><main class="live-main">' + body + '</main>';
 const loading = text => '<p role="status" class="loading">' + e(text) + '</p>';
 const error = err => '<p role="alert" class="error">' + e(err.message) + '</p>';
+const rerunButton = a => ['completed','failed'].includes(a.status) && a.hasImage ? '<button type="button" data-rerun="'+e(a.id)+'">Rerun analysis</button>' : '';
+function bindReruns() {
+  document.querySelectorAll('[data-rerun]').forEach(button => {
+    button.onclick = async () => {
+      button.disabled = true; button.textContent = 'Starting fresh analysis…';
+      const feedback = document.createElement('p'); feedback.setAttribute('role','status'); button.after(feedback);
+      try { const a = await request('/analyses/'+encodeURIComponent(button.dataset.rerun)+'/rerun',{method:'POST'}); go('/analysis/'+a.id); }
+      catch(err) { feedback.textContent=err.message; feedback.setAttribute('role','alert'); button.disabled=false; button.textContent='Rerun analysis'; }
+    };
+  });
+}
 function go(path) { history.pushState({},'',path); render(); }
 document.addEventListener('click', event => {
   const a = event.target.closest('a');
+  if (a?.getAttribute('href')?.startsWith('#')) {
+    const target = document.getElementById(a.getAttribute('href').slice(1));
+    if (target) { event.preventDefault(); for(let node=target;node;node=node.parentElement) if(node.tagName==='DETAILS') node.open=true; target.scrollIntoView({behavior:'auto',block:'start'}); }
+    return;
+  }
   if (a && a.getAttribute('href')?.startsWith('/') && !event.ctrlKey && !event.metaKey) {event.preventDefault();go(a.getAttribute('href'));}
 });
 window.addEventListener('popstate', render);
@@ -23,9 +39,10 @@ async function render() {
     const data = await request('/analyses?limit=20&offset=' + offset);
     if (token !== generation) return;
     app.innerHTML = shell('<div class="heading"><div><p class="eyebrow">Workspace</p><h1>Saved analyses</h1><p>Campaigns and results stored in your database.</p></div><button id="refresh">Refresh</button></div><section class="panel">' +
-      (data.items.length ? '<div class="table-wrap"><table><thead><tr><th>Product / brand</th><th>Status</th><th>Stage</th><th>Updated</th></tr></thead><tbody>' + data.items.map(a => '<tr><td><a href="/analysis/' + e(a.id) + '">' + e(a.campaign.product) + '</a><small>' + e(a.campaign.brand) + '</small></td><td>' + e(a.status) + '</td><td>' + e(a.stage.replaceAll('_',' ')) + '</td><td>' + e(new Date(a.updatedAt).toLocaleString()) + '</td></tr>').join('') + '</tbody></table></div>' : '<h2>No saved analyses</h2><p>Create an analysis to upload a creative and research its product category.</p>') +
+      (data.items.length ? '<div class="table-wrap"><table><thead><tr><th>Product / brand</th><th>Status</th><th>Stage</th><th>Updated</th><th>Actions</th></tr></thead><tbody>' + data.items.map(a => '<tr><td><a href="/analysis/' + e(a.id) + '">' + e(a.campaign.product) + '</a><small>' + e(a.campaign.brand) + '</small></td><td>' + e(a.status) + '</td><td>' + e(a.stage.replaceAll('_',' ')) + '</td><td>' + e(new Date(a.updatedAt).toLocaleString()) + '</td><td>' + rerunButton(a) + '</td></tr>').join('') + '</tbody></table></div>' : '<h2>No saved analyses</h2><p>Create an analysis to upload a creative and research its product category.</p>') +
       '</section><nav class="pagination">' + (offset ? '<a href="/dashboard?offset=' + Math.max(0,offset-20) + '">Previous</a>' : '') + (data.items.length === 20 ? '<a href="/dashboard?offset=' + (offset+20) + '">Next</a>' : '') + '</nav>');
     document.querySelector('#refresh').onclick = render;
+    bindReruns();
   } catch(err) { if(token === generation) { app.innerHTML = shell(error(err) + '<button id="retry">Try again</button>'); document.querySelector('#retry').onclick=render; } }
 }
 function filesForm(required = false) {
@@ -49,8 +66,9 @@ async function detail(id, token) {
   const base='/analyses/'+encodeURIComponent(id);
   const a=await request(base);
   if(token!==generation)return;
-  app.innerHTML=shell('<p class="eyebrow">'+e(a.campaign.brand)+'</p><h1>'+e(a.campaign.product)+'</h1><section class="panel"><div role="status"><b>'+e(a.status)+'</b> · '+e(a.stage.replaceAll('_',' '))+' · '+e(a.completedPersonas)+'/5 personas</div><p>'+e(a.campaign.objective)+'</p>'+(a.error?error(a.error):'')+(a.hasImage?'<img class="creative" alt="Saved campaign creative" src="/api'+base+'/image">':'')+'</section><div id="detail-body"></div>');
+  app.innerHTML=shell('<p class="eyebrow">'+e(a.campaign.brand)+'</p><h1>'+e(a.campaign.product)+'</h1><section class="panel analysis-context"><div role="status"><b>'+e(a.status)+'</b> · '+e(a.stage.replaceAll('_',' '))+' · '+e(a.completedPersonas)+'/5 personas</div><p>'+e(a.campaign.objective)+'</p>'+(a.error?error(a.error):'')+(a.hasImage?'<img class="creative" alt="Saved campaign creative" src="/api'+base+'/image">':'')+'</section><div id="detail-body"></div>');
   const body=document.querySelector('#detail-body');
+  if (rerunButton(a)) { body.insertAdjacentHTML('beforebegin','<section class="panel rerun-strip">'+rerunButton(a)+'<p>Starts fresh research with this campaign and creative. Your previous report is kept.</p></section>'); bindReruns(); }
   if(a.status==='completed') {body.innerHTML=loading('Loading report…'); const r=await request(base+'/report'); if(token===generation)body.innerHTML=reportView(r);return;}
   if(a.status==='running'||a.status==='queued') {
     body.innerHTML=loading('Analysis in progress. Checking for updates every 2.5 seconds…');
